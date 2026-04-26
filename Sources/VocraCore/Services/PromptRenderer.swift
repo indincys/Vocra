@@ -23,7 +23,9 @@ public struct PromptRenderer: Sendable {
     var output = ""
     var currentIndex = template.body.startIndex
     for match in matches {
-      output += template.body[currentIndex..<match.range.lowerBound]
+      let literalSegment = template.body[currentIndex..<match.range.lowerBound]
+      try validateLiteralSegment(literalSegment)
+      output += literalSegment
 
       let name = String(match.1)
       guard name.wholeMatch(of: supportedVariablePattern) != nil else {
@@ -35,8 +37,24 @@ public struct PromptRenderer: Sendable {
       output += value
       currentIndex = match.range.upperBound
     }
-    output += template.body[currentIndex...]
+    let trailingLiteralSegment = template.body[currentIndex...]
+    try validateLiteralSegment(trailingLiteralSegment)
+    output += trailingLiteralSegment
 
     return output
+  }
+
+  private func validateLiteralSegment(_ segment: Substring) throws {
+    if let openingDelimiter = segment.range(of: "{{") {
+      throw PromptRenderError.malformedVariable(
+        String(segment[openingDelimiter.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+      )
+    }
+
+    if let closingDelimiter = segment.range(of: "}}") {
+      throw PromptRenderError.malformedVariable(
+        String(segment[..<closingDelimiter.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+      )
+    }
   }
 }

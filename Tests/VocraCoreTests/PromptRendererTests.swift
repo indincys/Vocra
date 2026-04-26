@@ -38,6 +38,15 @@ final class PromptRendererTests: XCTestCase {
     }
   }
 
+  func testRejectsUnclosedMalformedVariables() {
+    let template = PromptTemplate(kind: .wordExplanation, body: "Explain {{text")
+    let context = PromptContext(text: "embedding", type: .word, sourceApp: nil, surroundingContext: "", createdAt: "2026-04-26T00:00:00Z")
+
+    XCTAssertThrowsError(try PromptRenderer().render(template, context: context)) { error in
+      XCTAssertEqual(error as? PromptRenderError, .malformedVariable("text"))
+    }
+  }
+
   func testDefaultStoreContainsFourPrompts() {
     let store = InMemoryPromptStore.defaults()
     XCTAssertNotNil(store.template(for: .wordExplanation))
