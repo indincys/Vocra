@@ -29,4 +29,16 @@ final class TextClassifierTests: XCTestCase {
     XCTAssertEqual(result.cleanedText, "large language model")
     XCTAssertEqual(result.mode, .phrase)
   }
+
+  func testClassifiesLineBreakSelectionAsSentence() {
+    let result = classifier.classify("context window\nattention head")
+    XCTAssertEqual(result.cleanedText, "context window attention head")
+    XCTAssertEqual(result.mode, .sentence)
+  }
+
+  func testPreservesBracketedAIToken() {
+    let result = classifier.classify("[MASK]")
+    XCTAssertEqual(result.cleanedText, "[MASK]")
+    XCTAssertEqual(result.mode, .word)
+  }
 }

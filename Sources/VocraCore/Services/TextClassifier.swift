@@ -11,8 +11,11 @@ public struct TextClassifier: Sendable {
   public init() {}
 
   public func classify(_ text: String, sourceApp: String? = nil) -> CapturedText {
+    let hadLineBreak = text.contains { character in
+      character.isNewline
+    }
     let cleaned = clean(text)
-    let mode = classifyCleanedText(cleaned)
+    let mode = classifyCleanedText(cleaned, hadLineBreak: hadLineBreak)
     return CapturedText(originalText: text, cleanedText: cleaned, mode: mode, sourceApp: sourceApp)
   }
 
@@ -23,17 +26,18 @@ public struct TextClassifier: Sendable {
       .filter { !$0.isEmpty }
       .joined(separator: " ")
 
-    let edgeCharacters = CharacterSet(charactersIn: "\"'`“”‘’()[]{}")
+    let edgeCharacters = CharacterSet(charactersIn: "\"'`“”‘’")
     return collapsed.trimmingCharacters(in: edgeCharacters)
   }
 
-  private func classifyCleanedText(_ text: String) -> ExplanationMode {
+  private func classifyCleanedText(_ text: String, hadLineBreak: Bool) -> ExplanationMode {
     guard !text.isEmpty else { return .sentence }
 
     let words = text.split(separator: " ").map(String.init)
     let spaceCount = max(words.count - 1, 0)
 
     if spaceCount == 0 { return .word }
+    if hadLineBreak { return .sentence }
     if spaceCount == 1 { return .phrase }
 
     if hasSentencePunctuation(text) { return .sentence }
