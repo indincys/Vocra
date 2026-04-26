@@ -19,6 +19,7 @@ final class AppModel {
   private let vocabularyRepository: SQLiteVocabularyRepository
   private let reviewScheduler: ReviewScheduler
   private let shortcutService: ShortcutService
+  private let floatingPanel = FloatingPanelController()
 
   init() {
     self.classifier = TextClassifier()
@@ -49,12 +50,15 @@ final class AppModel {
     do {
       latestErrorMessage = nil
       latestMarkdown = ""
+      latestCapturedText = nil
 
       let selection = try await selectionReader.readSelection()
       let captured = classifier.classify(selection.text, sourceApp: selection.sourceApp)
       latestCapturedText = captured
+      refreshPanel()
       let markdown = try await explain(captured)
       latestMarkdown = markdown
+      refreshPanel()
 
       if captured.mode == .word || captured.mode == .phrase {
         let vocabularyType: VocabularyType = captured.mode == .word ? .word : .phrase
@@ -68,6 +72,7 @@ final class AppModel {
       }
     } catch {
       latestErrorMessage = String(describing: error)
+      refreshPanel()
     }
   }
 
@@ -78,9 +83,12 @@ final class AppModel {
     do {
       latestErrorMessage = nil
       latestMarkdown = ""
+      refreshPanel()
       latestMarkdown = try await explain(adjusted)
+      refreshPanel()
     } catch {
       latestErrorMessage = String(describing: error)
+      refreshPanel()
     }
   }
 
@@ -113,6 +121,22 @@ final class AppModel {
       apiKeyProvider: { try apiKeyStore.readAPIKey() }
     )
     return try await client.complete(prompt: prompt)
+  }
+
+  private func refreshPanel() {
+    floatingPanel.show(rootView: ExplanationPanelView(
+      capturedText: latestCapturedText,
+      markdown: latestMarkdown,
+      errorMessage: latestErrorMessage,
+      onSwitchMode: { [weak self] mode in
+        Task { @MainActor in
+          await self?.explainWithMode(mode)
+        }
+      },
+      onClose: { [weak self] in
+        self?.floatingPanel.close()
+      }
+    ))
   }
 
   private static func databasePath() -> String {
