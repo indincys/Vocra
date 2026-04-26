@@ -29,6 +29,8 @@ git push origin v0.1.0
 
 The release workflow builds `Vocra.app`, embeds Sparkle, ad-hoc signs the bundle, creates `Vocra-<version>.dmg`, generates `appcast.xml`, and uploads both files to the GitHub Release.
 
+Release builds use a UTC timestamp as `CFBundleVersion` so Sparkle always sees a monotonically increasing internal version.
+
 The app uses this default feed URL:
 
 ```text

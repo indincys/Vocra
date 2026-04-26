@@ -13,7 +13,7 @@ if [[ -z "$VERSION" ]]; then
 fi
 
 TAG="${VOCRA_TAG:-v$VERSION}"
-BUILD_VERSION="${VOCRA_BUILD:-${GITHUB_RUN_NUMBER:-$(git -C "$ROOT_DIR" rev-list --count HEAD)}}"
+BUILD_VERSION="${VOCRA_BUILD:-$(date -u +%Y%m%d%H%M)}"
 REPOSITORY="${GITHUB_REPOSITORY:-${VOCRA_GITHUB_REPOSITORY:-}}"
 if [[ -z "$REPOSITORY" ]]; then
   ORIGIN_URL="$(git -C "$ROOT_DIR" remote get-url origin 2>/dev/null || true)"
