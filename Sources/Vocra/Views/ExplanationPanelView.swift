@@ -17,21 +17,8 @@ struct ExplanationPanelView: View {
         Divider()
           .opacity(0.35)
 
-        ScrollView {
-          if let errorMessage {
-            Text(errorMessage)
-              .foregroundStyle(.red)
-              .textSelection(.enabled)
-              .frame(maxWidth: .infinity, alignment: .leading)
-          } else if markdown.isEmpty {
-            ProgressView()
-              .frame(maxWidth: .infinity, minHeight: 320)
-          } else {
-            Text(renderedMarkdown)
-              .textSelection(.enabled)
-              .frame(maxWidth: .infinity, alignment: .leading)
-          }
-        }
+        content
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
 
         footer
       }
@@ -39,6 +26,25 @@ struct ExplanationPanelView: View {
       .frame(minWidth: 480, maxWidth: .infinity, minHeight: 520, maxHeight: .infinity)
       .foregroundStyle(.primary)
       .glassEffect(.clear, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+    }
+  }
+
+  @ViewBuilder
+  private var content: some View {
+    if let errorMessage {
+      ScrollView {
+        Text(errorMessage)
+          .foregroundStyle(.red)
+          .textSelection(.enabled)
+          .frame(maxWidth: .infinity, alignment: .leading)
+      }
+      .frame(minHeight: 320)
+    } else if markdown.isEmpty {
+      ProgressView()
+        .frame(maxWidth: .infinity, minHeight: 320)
+    } else {
+      MarkdownWebView(markdown: markdown)
+        .frame(minHeight: 320)
     }
   }
 
@@ -81,9 +87,5 @@ struct ExplanationPanelView: View {
 
       Spacer()
     }
-  }
-
-  private var renderedMarkdown: AttributedString {
-    (try? AttributedString(markdown: markdown)) ?? AttributedString(markdown)
   }
 }

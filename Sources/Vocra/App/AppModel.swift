@@ -5,6 +5,8 @@ import VocraCore
 @MainActor
 @Observable
 final class AppModel {
+  typealias ExplanationProvider = (CapturedText) async throws -> String
+
   var latestCapturedText: CapturedText?
   var latestMarkdown: String = ""
   var latestErrorMessage: String?
@@ -22,19 +24,38 @@ final class AppModel {
   private let vocabularyRepository: SQLiteVocabularyRepository
   private let reviewScheduler: ReviewScheduler
   private let shortcutService: ShortcutService
-  private let floatingPanel = FloatingPanelController()
+  private let panelPresenter: any ExplanationPanelPresenting
+  private let explanationProvider: ExplanationProvider?
   @ObservationIgnored nonisolated(unsafe) private var shortcutChangeObserver: NSObjectProtocol?
 
-  init() {
-    self.classifier = TextClassifier()
-    self.promptRenderer = PromptRenderer()
-    self.promptStore = UserDefaultsPromptStore()
-    self.settingsStore = UserDefaultsSettingsStore()
-    self.apiKeyStore = KeychainAPIKeyStore()
-    self.selectionReader = MacSelectionReader()
-    self.vocabularyRepository = try! SQLiteVocabularyRepository(path: AppModel.databasePath())
-    self.reviewScheduler = ReviewScheduler()
-    self.shortcutService = ShortcutService()
+  convenience init() {
+    self.init(vocabularyRepository: try! SQLiteVocabularyRepository(path: AppModel.databasePath()))
+  }
+
+  init(
+    classifier: TextClassifier = TextClassifier(),
+    promptRenderer: PromptRenderer = PromptRenderer(),
+    promptStore: UserDefaultsPromptStore = UserDefaultsPromptStore(),
+    settingsStore: UserDefaultsSettingsStore = UserDefaultsSettingsStore(),
+    apiKeyStore: KeychainAPIKeyStore = KeychainAPIKeyStore(),
+    selectionReader: any SelectionReader = MacSelectionReader(),
+    vocabularyRepository: SQLiteVocabularyRepository,
+    reviewScheduler: ReviewScheduler = ReviewScheduler(),
+    shortcutService: ShortcutService = ShortcutService(),
+    panelPresenter: any ExplanationPanelPresenting = FloatingPanelController(),
+    explanationProvider: ExplanationProvider? = nil
+  ) {
+    self.classifier = classifier
+    self.promptRenderer = promptRenderer
+    self.promptStore = promptStore
+    self.settingsStore = settingsStore
+    self.apiKeyStore = apiKeyStore
+    self.selectionReader = selectionReader
+    self.vocabularyRepository = vocabularyRepository
+    self.reviewScheduler = reviewScheduler
+    self.shortcutService = shortcutService
+    self.panelPresenter = panelPresenter
+    self.explanationProvider = explanationProvider
     self.currentShortcut = settingsStore.loadKeyboardShortcut()
     self.shortcutChangeObserver = NotificationCenter.default.addObserver(
       forName: .vocraKeyboardShortcutDidChange,
@@ -75,6 +96,7 @@ final class AppModel {
 
   func handleShortcut() async {
     guard !isShortcutPaused else { return }
+    var capturedForError: CapturedText?
     do {
       latestErrorMessage = nil
       latestMarkdown = ""
@@ -82,11 +104,8 @@ final class AppModel {
 
       let selection = try await selectionReader.readSelection()
       let captured = classifier.classify(selection.text, sourceApp: selection.sourceApp)
-      latestCapturedText = captured
-      refreshPanel()
+      capturedForError = captured
       let markdown = try await explain(captured)
-      latestMarkdown = markdown
-      refreshPanel()
 
       if captured.mode == .word || captured.mode == .phrase {
         let vocabularyType: VocabularyType = captured.mode == .word ? .word : .phrase
@@ -99,7 +118,14 @@ final class AppModel {
         )
         vocabularyRevision += 1
       }
+
+      latestCapturedText = captured
+      latestMarkdown = markdown
+      latestErrorMessage = nil
+      refreshPanel()
     } catch {
+      latestCapturedText = capturedForError
+      latestMarkdown = ""
       latestErrorMessage = String(describing: error)
       refreshPanel()
     }
@@ -108,14 +134,15 @@ final class AppModel {
   func explainWithMode(_ mode: ExplanationMode) async {
     guard let current = latestCapturedText else { return }
     let adjusted = CapturedText(originalText: current.originalText, cleanedText: current.cleanedText, mode: mode, sourceApp: current.sourceApp)
-    latestCapturedText = adjusted
     do {
+      let markdown = try await explain(adjusted)
+      latestCapturedText = adjusted
+      latestMarkdown = markdown
       latestErrorMessage = nil
-      latestMarkdown = ""
-      refreshPanel()
-      latestMarkdown = try await explain(adjusted)
       refreshPanel()
     } catch {
+      latestCapturedText = adjusted
+      latestMarkdown = ""
       latestErrorMessage = String(describing: error)
       refreshPanel()
     }
@@ -137,6 +164,10 @@ final class AppModel {
   }
 
   private func explain(_ captured: CapturedText) async throws -> String {
+    if let explanationProvider {
+      return try await explanationProvider(captured)
+    }
+
     let kind: PromptKind = switch captured.mode {
     case .word: .wordExplanation
     case .phrase: .phraseExplanation
@@ -160,24 +191,28 @@ final class AppModel {
   }
 
   private func refreshPanel() {
-    floatingPanel.show(rootView: ExplanationPanelView(
+    let content = ExplanationPanelContent(
       capturedText: latestCapturedText,
       markdown: latestMarkdown,
-      errorMessage: latestErrorMessage,
+      errorMessage: latestErrorMessage
+    )
+    panelPresenter.show(
+      content: content,
       onSwitchMode: { [weak self] mode in
         Task { @MainActor in
           await self?.explainWithMode(mode)
         }
       },
       onClose: { [weak self] in
-        self?.floatingPanel.close()
+        self?.panelPresenter.close()
       }
-    ))
+    )
   }
 
   private static func databasePath() -> String {
     let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-    let folder = support.appending(path: "Vocra", directoryHint: .isDirectory)
+    let folderName = Bundle.main.bundleIdentifier == "com.indincys.Vocra.dev" ? "Vocra Dev" : "Vocra"
+    let folder = support.appending(path: folderName, directoryHint: .isDirectory)
     try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     return folder.appending(path: "vocra.sqlite").path
   }

@@ -6,6 +6,6 @@ name = "Vocra"
 script = ""
 
 [[actions]]
-name = "Run"
+name = "运行测试版"
 icon = "run"
 command = "./script/build_and_run.sh"

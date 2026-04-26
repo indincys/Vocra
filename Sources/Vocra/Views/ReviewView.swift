@@ -27,10 +27,8 @@ struct ReviewView: View {
               .fontWeight(.semibold)
 
             if showsBack {
-              Text(renderedMarkdown(card.cardMarkdown))
-                .font(.body)
-                .multilineTextAlignment(.leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
+              MarkdownWebView(markdown: card.cardMarkdown)
+                .frame(maxWidth: .infinity, minHeight: 220)
             }
           }
           .padding(32)
@@ -56,9 +54,5 @@ struct ReviewView: View {
       index += 1
     }
     .buttonStyle(.glass)
-  }
-
-  private func renderedMarkdown(_ markdown: String) -> AttributedString {
-    (try? AttributedString(markdown: markdown)) ?? AttributedString(markdown)
   }
 }

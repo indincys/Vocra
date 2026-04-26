@@ -4,10 +4,21 @@ import SwiftUI
 struct VocraApp: App {
   @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
   @Environment(\.openWindow) private var openWindow
-  @State private var appModel = AppModel()
+  @State private var appModel: AppModel
+  private let appName: String
+
+  @MainActor
+  init() {
+    let appModel = AppModel()
+    _appModel = State(initialValue: appModel)
+    self.appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+      ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
+      ?? "Vocra"
+    appModel.start()
+  }
 
   var body: some Scene {
-    MenuBarExtra("Vocra", systemImage: "text.magnifyingglass") {
+    MenuBarExtra(appName, systemImage: "text.magnifyingglass") {
       Button("Explain Selection") {
         Task { await appModel.handleShortcut() }
       }
@@ -24,7 +35,7 @@ struct VocraApp: App {
 
       Divider()
 
-      Button("Open Vocra") {
+      Button("Open \(appName)") {
         openWindow(id: "main")
         NSApp.activate(ignoringOtherApps: true)
       }
@@ -37,16 +48,24 @@ struct VocraApp: App {
       .keyboardShortcut("q")
     }
 
-    WindowGroup("Vocra", id: "main") {
-      RootView(appModel: appModel)
-        .frame(minWidth: 900, minHeight: 620)
-        .task {
-          appModel.start()
-        }
-    }
+    mainWindowScene
 
     Settings {
       SettingsView()
     }
+  }
+
+  private var mainWindowScene: some Scene {
+    appDelegate.openMainWindow = {
+      openWindow(id: "main")
+      NSApp.activate(ignoringOtherApps: true)
+    }
+
+    return Window(appName, id: "main") {
+      RootView(appModel: appModel)
+        .frame(minWidth: 900, minHeight: 620)
+    }
+    .defaultLaunchBehavior(.suppressed)
+    .restorationBehavior(.disabled)
   }
 }

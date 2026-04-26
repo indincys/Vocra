@@ -2,8 +2,31 @@
 set -euo pipefail
 
 MODE="${1:-run}"
-APP_NAME="Vocra"
-BUNDLE_ID="com.indincys.Vocra"
+PRODUCT_NAME="Vocra"
+APP_VARIANT="${VOCRA_APP_VARIANT:-dev}"
+if [[ "$MODE" == "--package" || "$MODE" == "package" ]]; then
+  APP_VARIANT="${VOCRA_APP_VARIANT:-release}"
+fi
+
+case "$APP_VARIANT" in
+  dev)
+    APP_NAME="${VOCRA_DEV_APP_NAME:-Vocra Dev}"
+    EXECUTABLE_NAME="${VOCRA_DEV_EXECUTABLE_NAME:-VocraDev}"
+    BUNDLE_ID="${VOCRA_DEV_BUNDLE_ID:-com.indincys.Vocra.dev}"
+    DEFAULT_CODESIGN_IDENTITY="Vocra Local Development"
+    ;;
+  release)
+    APP_NAME="Vocra"
+    EXECUTABLE_NAME="Vocra"
+    BUNDLE_ID="com.indincys.Vocra"
+    DEFAULT_CODESIGN_IDENTITY="-"
+    ;;
+  *)
+    echo "VOCRA_APP_VARIANT must be 'dev' or 'release'." >&2
+    exit 2
+    ;;
+esac
+
 MIN_SYSTEM_VERSION="26.0"
 SWIFT_CONFIGURATION="${SWIFT_CONFIGURATION:-debug}"
 MARKETING_VERSION="${VOCRA_VERSION:-0.1.0}"
@@ -18,14 +41,14 @@ APP_CONTENTS="$APP_BUNDLE/Contents"
 APP_MACOS="$APP_CONTENTS/MacOS"
 APP_RESOURCES="$APP_CONTENTS/Resources"
 APP_FRAMEWORKS="$APP_CONTENTS/Frameworks"
-APP_BINARY="$APP_MACOS/$APP_NAME"
+APP_BINARY="$APP_MACOS/$EXECUTABLE_NAME"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
 APP_ICON="$ROOT_DIR/Resources/AppIcon/Vocra.icns"
 
-pkill -x "$APP_NAME" >/dev/null 2>&1 || true
+pkill -x "$EXECUTABLE_NAME" >/dev/null 2>&1 || true
 
 swift build -c "$SWIFT_CONFIGURATION"
-BUILD_BINARY="$(swift build -c "$SWIFT_CONFIGURATION" --show-bin-path)/$APP_NAME"
+BUILD_BINARY="$(swift build -c "$SWIFT_CONFIGURATION" --show-bin-path)/$PRODUCT_NAME"
 
 rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_MACOS" "$APP_RESOURCES" "$APP_FRAMEWORKS"
@@ -51,6 +74,8 @@ cat >"$INFO_PLIST" <<PLIST
 <plist version="1.0">
 <dict>
   <key>CFBundleExecutable</key>
+  <string>$EXECUTABLE_NAME</string>
+  <key>CFBundleDisplayName</key>
   <string>$APP_NAME</string>
   <key>CFBundleIconFile</key>
   <string>Vocra</string>
@@ -78,7 +103,20 @@ if [[ -n "$SPARKLE_FEED_URL" && -n "$SPARKLE_PUBLIC_KEY" ]]; then
   /usr/libexec/PlistBuddy -c "Add :SUEnableAutomaticChecks bool true" "$INFO_PLIST"
 fi
 
-/usr/bin/codesign --force --deep --sign - "$APP_BUNDLE"
+CODESIGN_IDENTITY="${VOCRA_CODESIGN_IDENTITY:-}"
+if [[ -z "$CODESIGN_IDENTITY" ]]; then
+  if [[ "$DEFAULT_CODESIGN_IDENTITY" != "-" ]] && security find-identity -p codesigning -v | grep -Fq "\"$DEFAULT_CODESIGN_IDENTITY\""; then
+    CODESIGN_IDENTITY="$DEFAULT_CODESIGN_IDENTITY"
+  else
+    CODESIGN_IDENTITY="-"
+  fi
+fi
+
+if [[ "$APP_VARIANT" == "dev" && "$CODESIGN_IDENTITY" == "-" ]]; then
+  echo "warning: signing $APP_NAME ad-hoc; create a local 'Vocra Local Development' code-signing certificate to keep Accessibility permission stable across rebuilds." >&2
+fi
+
+/usr/bin/codesign --force --deep --sign "$CODESIGN_IDENTITY" "$APP_BUNDLE"
 
 open_app() {
   /usr/bin/open -n "$APP_BUNDLE"
@@ -93,7 +131,7 @@ case "$MODE" in
     ;;
   --logs|logs)
     open_app
-    /usr/bin/log stream --info --style compact --predicate "process == \"$APP_NAME\""
+    /usr/bin/log stream --info --style compact --predicate "process == \"$EXECUTABLE_NAME\""
     ;;
   --telemetry|telemetry)
     open_app
@@ -102,7 +140,7 @@ case "$MODE" in
   --verify|verify)
     open_app
     sleep 1
-    pgrep -x "$APP_NAME" >/dev/null
+    pgrep -x "$EXECUTABLE_NAME" >/dev/null
     ;;
   --package|package)
     ;;

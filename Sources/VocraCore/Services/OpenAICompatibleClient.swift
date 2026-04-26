@@ -42,7 +42,6 @@ public struct OpenAICompatibleClient: AIClient {
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
     request.httpBody = try JSONEncoder().encode(ChatCompletionRequest(
       model: configuration.model,
-      temperature: configuration.temperature,
       messages: [
         RequestMessage(role: "user", content: prompt)
       ]
@@ -69,7 +68,6 @@ public struct OpenAICompatibleClient: AIClient {
 
 private struct ChatCompletionRequest: Encodable {
   let model: String
-  let temperature: Double
   let messages: [RequestMessage]
 }
 

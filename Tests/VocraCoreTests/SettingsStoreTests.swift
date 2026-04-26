@@ -6,7 +6,6 @@ final class SettingsStoreTests: XCTestCase {
   func testDefaultAPIConfigurationUsesOpenAICompatibleDefaults() {
     XCTAssertEqual(APIConfiguration.default.baseURL.absoluteString, "https://api.openai.com/v1")
     XCTAssertEqual(APIConfiguration.default.model, "gpt-5.1-mini")
-    XCTAssertEqual(APIConfiguration.default.temperature, 0.2)
     XCTAssertEqual(APIConfiguration.default.timeoutSeconds, 45)
   }
 
@@ -18,7 +17,6 @@ final class SettingsStoreTests: XCTestCase {
     let configuration = APIConfiguration(
       baseURL: try XCTUnwrap(URL(string: "https://example.com/v1")),
       model: "custom-model",
-      temperature: 0.7,
       timeoutSeconds: 30
     )
 

@@ -11,9 +11,9 @@ struct SettingsView: View {
 
   @State private var baseURL = APIConfiguration.default.baseURL.absoluteString
   @State private var model = APIConfiguration.default.model
-  @State private var temperature = APIConfiguration.default.temperature
   @State private var timeout = APIConfiguration.default.timeoutSeconds
   @State private var apiKey = ""
+  @State private var isTestingAPI = false
   @State private var wordPrompt = ""
   @State private var phrasePrompt = ""
   @State private var sentencePrompt = ""
@@ -31,9 +31,16 @@ struct SettingsView: View {
         TextField("Base URL", text: $baseURL)
         TextField("Model", text: $model)
         SecureField("API Key", text: $apiKey)
-        SliderRow(title: "Temperature", value: $temperature, range: 0...2)
         Stepper("Timeout: \(Int(timeout)) seconds", value: $timeout, in: 5...120, step: 5)
-        Button("Save API Settings", action: saveAPISettings)
+        HStack {
+          Button("Save API Settings", action: saveAPISettings)
+          Button(isTestingAPI ? "Testing API..." : "测试API") {
+            Task {
+              await testAPIConnection()
+            }
+          }
+          .disabled(isTestingAPI)
+        }
       }
 
       Section("Prompts") {
@@ -80,8 +87,7 @@ struct SettingsView: View {
 
       Section("Review") {
         Toggle("Daily Reminder", isOn: $dailyReminderEnabled)
-        Stepper("Hour: \(reminderHour)", value: $reminderHour, in: 0...23)
-        Stepper("Minute: \(reminderMinute)", value: $reminderMinute, in: 0...59, step: 5)
+        DatePicker("Daily Reminder Time", selection: reminderTimeBinding, displayedComponents: .hourAndMinute)
         Button(dailyReminderEnabled ? "Schedule Daily Reminder" : "Disable Daily Reminder") {
           Task {
             await saveReminderPreference()
@@ -114,7 +120,6 @@ struct SettingsView: View {
     let configuration = settingsStore.loadAPIConfiguration()
     baseURL = configuration.baseURL.absoluteString
     model = configuration.model
-    temperature = configuration.temperature
     timeout = configuration.timeoutSeconds
     apiKey = (try? apiKeyStore.readAPIKey()) ?? ""
     wordPrompt = promptStore.template(for: .wordExplanation)?.body ?? ""
@@ -125,17 +130,12 @@ struct SettingsView: View {
   }
 
   private func saveAPISettings() {
-    guard let url = URL(string: baseURL) else {
+    guard let configuration = currentAPIConfiguration() else {
       statusMessage = "Base URL is invalid."
       return
     }
 
-    settingsStore.saveAPIConfiguration(APIConfiguration(
-      baseURL: url,
-      model: model,
-      temperature: temperature,
-      timeoutSeconds: timeout
-    ))
+    settingsStore.saveAPIConfiguration(configuration)
 
     do {
       if apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -146,6 +146,25 @@ struct SettingsView: View {
       statusMessage = "API settings saved."
     } catch {
       statusMessage = "API key save failed: \(error)"
+    }
+  }
+
+  @MainActor
+  private func testAPIConnection() async {
+    guard let configuration = currentAPIConfiguration() else {
+      statusMessage = "Base URL is invalid."
+      return
+    }
+
+    isTestingAPI = true
+    statusMessage = "Testing API connection..."
+    defer { isTestingAPI = false }
+
+    do {
+      try await APIConnectionTester().test(configuration: configuration, apiKey: apiKey)
+      statusMessage = "API connection succeeded."
+    } catch {
+      statusMessage = "API connection failed: \(error)"
     }
   }
 
@@ -167,6 +186,31 @@ struct SettingsView: View {
     statusMessage = "Shortcut saved: \(keyboardShortcut.displayString)."
   }
 
+  private func currentAPIConfiguration() -> APIConfiguration? {
+    guard let url = URL(string: baseURL) else { return nil }
+    return APIConfiguration(
+      baseURL: url,
+      model: model,
+      timeoutSeconds: timeout
+    )
+  }
+
+  private var reminderTimeBinding: Binding<Date> {
+    Binding {
+      Calendar.current.date(from: DateComponents(
+        year: 2000,
+        month: 1,
+        day: 1,
+        hour: reminderHour,
+        minute: reminderMinute
+      )) ?? Date()
+    } set: { date in
+      let components = Calendar.current.dateComponents([.hour, .minute], from: date)
+      reminderHour = components.hour ?? 9
+      reminderMinute = components.minute ?? 0
+    }
+  }
+
   @MainActor
   private func saveReminderPreference() async {
     if dailyReminderEnabled {
@@ -186,22 +230,6 @@ struct SettingsView: View {
     } else {
       reminderService.cancelDailyReminder()
       statusMessage = "Daily reminder disabled."
-    }
-  }
-}
-
-private struct SliderRow: View {
-  let title: String
-  @Binding var value: Double
-  let range: ClosedRange<Double>
-
-  var body: some View {
-    HStack {
-      Text(title)
-      Slider(value: $value, in: range, step: 0.1)
-      Text(value.formatted(.number.precision(.fractionLength(1))))
-        .monospacedDigit()
-        .frame(width: 36, alignment: .trailing)
     }
   }
 }

@@ -29,6 +29,10 @@ let package = Package(
     .testTarget(
       name: "VocraCoreTests",
       dependencies: ["VocraCore"]
+    ),
+    .testTarget(
+      name: "VocraTests",
+      dependencies: ["Vocra"]
     )
   ]
 )
