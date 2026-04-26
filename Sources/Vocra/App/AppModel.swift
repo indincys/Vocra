@@ -9,6 +9,7 @@ final class AppModel {
   var latestMarkdown: String = ""
   var latestErrorMessage: String?
   var isShortcutPaused = false
+  var vocabularyRevision = 0
 
   private let classifier: TextClassifier
   private let promptRenderer: PromptRenderer
@@ -69,6 +70,7 @@ final class AppModel {
           sourceApp: captured.sourceApp,
           now: Date()
         )
+        vocabularyRevision += 1
       }
     } catch {
       latestErrorMessage = String(describing: error)
@@ -93,11 +95,18 @@ final class AppModel {
   }
 
   func dueCards() -> [VocabularyCard] {
-    (try? vocabularyRepository.dueCards(now: Date())) ?? []
+    _ = vocabularyRevision
+    return (try? vocabularyRepository.dueCards(now: Date())) ?? []
   }
 
   func applyReview(cardID: UUID, rating: ReviewRating) {
     try? vocabularyRepository.applyReview(cardID: cardID, rating: rating, now: Date(), scheduler: reviewScheduler)
+    vocabularyRevision += 1
+  }
+
+  var allVocabularyCards: [VocabularyCard] {
+    _ = vocabularyRevision
+    return (try? vocabularyRepository.allCards()) ?? []
   }
 
   private func explain(_ captured: CapturedText) async throws -> String {
