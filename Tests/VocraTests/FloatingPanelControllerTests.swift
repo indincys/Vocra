@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import XCTest
 @testable import Vocra
 
@@ -19,5 +20,10 @@ final class FloatingPanelControllerTests: XCTestCase {
     panel.cancelOperation(nil)
 
     XCTAssertTrue(didClose)
+  }
+
+  func testExplanationPanelBackgroundOpacityOnlyAppliesInDarkMode() {
+    XCTAssertEqual(ExplanationPanelAppearance.backgroundOpacity(for: .light), 0)
+    XCTAssertGreaterThanOrEqual(ExplanationPanelAppearance.backgroundOpacity(for: .dark), 0.82)
   }
 }

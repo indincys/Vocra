@@ -25,6 +25,62 @@ final class SettingsStoreTests: XCTestCase {
     XCTAssertEqual(store.loadAPIConfiguration(), configuration)
   }
 
+  func testDefaultAPIProviderSettingsContainsActiveDefaultProfile() throws {
+    let suiteName = "SettingsStoreTests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let store = UserDefaultsSettingsStore(defaults: defaults)
+
+    let providerSettings = store.loadAPIProviderSettings()
+
+    XCTAssertEqual(providerSettings.profiles.count, 1)
+    XCTAssertEqual(providerSettings.activeProfileID, APIProviderProfile.defaultProfileID)
+    XCTAssertEqual(providerSettings.activeProfile?.name, "Default")
+    XCTAssertEqual(providerSettings.activeProfile?.configuration, .default)
+    XCTAssertEqual(providerSettings.activeProfile?.keychainAccount, KeychainAPIKeyStore.legacyAccount)
+  }
+
+  func testUserDefaultsSettingsStorePersistsMultipleAPIProviderProfiles() throws {
+    let suiteName = "SettingsStoreTests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let store = UserDefaultsSettingsStore(defaults: defaults)
+    let openAI = APIProviderProfile(
+      id: APIProviderProfile.defaultProfileID,
+      name: "OpenAI",
+      configuration: APIConfiguration(baseURL: try XCTUnwrap(URL(string: "https://api.openai.com/v1")), model: "gpt-5.1-mini", timeoutSeconds: 45)
+    )
+    let anthropicID = UUID()
+    let anthropic = APIProviderProfile(
+      id: anthropicID,
+      name: "Anthropic",
+      configuration: APIConfiguration(baseURL: try XCTUnwrap(URL(string: "https://example.com/v1")), model: "claude-test", timeoutSeconds: 30)
+    )
+    let providerSettings = APIProviderSettings(profiles: [openAI, anthropic], activeProfileID: anthropicID)
+
+    store.saveAPIProviderSettings(providerSettings)
+
+    XCTAssertEqual(store.loadAPIProviderSettings(), providerSettings)
+    XCTAssertEqual(store.loadAPIConfiguration(), anthropic.configuration)
+    XCTAssertEqual(anthropic.keychainAccount, "OpenAICompatibleAPIKey.\(anthropicID.uuidString)")
+  }
+
+  func testSavingAPIConfigurationUpdatesActiveProviderProfile() throws {
+    let suiteName = "SettingsStoreTests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let store = UserDefaultsSettingsStore(defaults: defaults)
+    let custom = APIConfiguration(
+      baseURL: try XCTUnwrap(URL(string: "https://custom.example/v1")),
+      model: "custom-model",
+      timeoutSeconds: 20
+    )
+
+    store.saveAPIConfiguration(custom)
+
+    XCTAssertEqual(store.loadAPIProviderSettings().activeProfile?.configuration, custom)
+  }
+
   func testUserDefaultsSettingsStorePersistsKeyboardShortcut() throws {
     let suiteName = "SettingsStoreTests.\(UUID().uuidString)"
     let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))

@@ -3,6 +3,8 @@ import Foundation
 public protocol SettingsStore: Sendable {
   func loadAPIConfiguration() -> APIConfiguration
   func saveAPIConfiguration(_ configuration: APIConfiguration)
+  func loadAPIProviderSettings() -> APIProviderSettings
+  func saveAPIProviderSettings(_ settings: APIProviderSettings)
   func loadKeyboardShortcut() -> KeyboardShortcut
   func saveKeyboardShortcut(_ shortcut: KeyboardShortcut)
 }
@@ -10,6 +12,7 @@ public protocol SettingsStore: Sendable {
 public final class UserDefaultsSettingsStore: SettingsStore, @unchecked Sendable {
   private let defaults: UserDefaults
   private let apiConfigurationKey = "apiConfiguration"
+  private let apiProviderSettingsKey = "apiProviderSettings"
   private let keyboardShortcutKey = "keyboardShortcut"
 
   public init(defaults: UserDefaults = .standard) {
@@ -17,18 +20,47 @@ public final class UserDefaultsSettingsStore: SettingsStore, @unchecked Sendable
   }
 
   public func loadAPIConfiguration() -> APIConfiguration {
-    guard
-      let data = defaults.data(forKey: apiConfigurationKey),
-      let configuration = try? JSONDecoder().decode(APIConfiguration.self, from: data)
-    else {
-      return .default
+    if let activeProfile = loadPersistedAPIProviderSettings()?.activeProfile {
+      return activeProfile.configuration
     }
-    return configuration
+    return loadLegacyAPIConfiguration()
   }
 
   public func saveAPIConfiguration(_ configuration: APIConfiguration) {
+    var providerSettings = loadAPIProviderSettings()
+    if let activeIndex = providerSettings.profiles.firstIndex(where: { $0.id == providerSettings.activeProfileID }) {
+      providerSettings.profiles[activeIndex].configuration = configuration
+    } else {
+      providerSettings = .default
+      providerSettings.profiles[0].configuration = configuration
+    }
+    saveAPIProviderSettings(providerSettings)
+
     guard let data = try? JSONEncoder().encode(configuration) else { return }
     defaults.set(data, forKey: apiConfigurationKey)
+  }
+
+  public func loadAPIProviderSettings() -> APIProviderSettings {
+    loadPersistedAPIProviderSettings() ?? APIProviderSettings(
+      profiles: [
+        APIProviderProfile(
+          id: APIProviderProfile.defaultProfileID,
+          name: "Default",
+          configuration: loadLegacyAPIConfiguration()
+        )
+      ],
+      activeProfileID: APIProviderProfile.defaultProfileID
+    )
+  }
+
+  public func saveAPIProviderSettings(_ settings: APIProviderSettings) {
+    let normalized = normalizedAPIProviderSettings(settings)
+    guard let data = try? JSONEncoder().encode(normalized) else { return }
+    defaults.set(data, forKey: apiProviderSettingsKey)
+    if let activeConfiguration = normalized.activeProfile?.configuration,
+      let legacyData = try? JSONEncoder().encode(activeConfiguration) {
+      defaults.set(legacyData, forKey: apiConfigurationKey)
+    }
   }
 
   public func loadKeyboardShortcut() -> KeyboardShortcut {
@@ -45,5 +77,34 @@ public final class UserDefaultsSettingsStore: SettingsStore, @unchecked Sendable
   public func saveKeyboardShortcut(_ shortcut: KeyboardShortcut) {
     guard shortcut.isValid, let data = try? JSONEncoder().encode(shortcut) else { return }
     defaults.set(data, forKey: keyboardShortcutKey)
+  }
+
+  private func loadLegacyAPIConfiguration() -> APIConfiguration {
+    guard
+      let data = defaults.data(forKey: apiConfigurationKey),
+      let configuration = try? JSONDecoder().decode(APIConfiguration.self, from: data)
+    else {
+      return .default
+    }
+    return configuration
+  }
+
+  private func loadPersistedAPIProviderSettings() -> APIProviderSettings? {
+    guard
+      let data = defaults.data(forKey: apiProviderSettingsKey),
+      let settings = try? JSONDecoder().decode(APIProviderSettings.self, from: data)
+    else { return nil }
+    return normalizedAPIProviderSettings(settings)
+  }
+
+  private func normalizedAPIProviderSettings(_ settings: APIProviderSettings) -> APIProviderSettings {
+    var profiles = settings.profiles
+    if profiles.isEmpty {
+      profiles = APIProviderSettings.default.profiles
+    }
+    let activeProfileID = profiles.contains { $0.id == settings.activeProfileID }
+      ? settings.activeProfileID
+      : profiles[0].id
+    return APIProviderSettings(profiles: profiles, activeProfileID: activeProfileID)
   }
 }

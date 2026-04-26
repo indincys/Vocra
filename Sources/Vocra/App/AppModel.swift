@@ -221,9 +221,10 @@ final class AppModel {
       createdAt: ISO8601DateFormatter().string(from: Date())
     )
     let prompt = try promptRenderer.render(template, context: context)
-    let apiKeyStore = self.apiKeyStore
+    let activeProfile = settingsStore.loadAPIProviderSettings().activeProfile
+    let apiKeyStore = activeProfile.map { KeychainAPIKeyStore(account: $0.keychainAccount) } ?? self.apiKeyStore
     let client = OpenAICompatibleClient(
-      configuration: settingsStore.loadAPIConfiguration(),
+      configuration: activeProfile?.configuration ?? settingsStore.loadAPIConfiguration(),
       apiKeyProvider: { try apiKeyStore.readAPIKey() }
     )
     return try await client.complete(prompt: prompt)

@@ -12,10 +12,12 @@ public enum APIKeyStoreError: Error, Equatable, Sendable {
 }
 
 public struct KeychainAPIKeyStore: APIKeyStore {
+  public static let legacyAccount = "OpenAICompatibleAPIKey"
+
   private let service: String
   private let account: String
 
-  public init(service: String = "com.indincys.Vocra", account: String = "OpenAICompatibleAPIKey") {
+  public init(service: String = "com.indincys.Vocra", account: String = KeychainAPIKeyStore.legacyAccount) {
     self.service = service
     self.account = account
   }

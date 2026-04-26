@@ -3,6 +3,8 @@ import SwiftUI
 import VocraCore
 
 struct ExplanationPanelView: View {
+  @Environment(\.colorScheme) private var colorScheme
+
   let capturedText: CapturedText?
   let markdown: String
   let errorMessage: String?
@@ -25,6 +27,10 @@ struct ExplanationPanelView: View {
       .padding(20)
       .frame(minWidth: 480, maxWidth: .infinity, minHeight: 520, maxHeight: .infinity)
       .foregroundStyle(.primary)
+      .background {
+        RoundedRectangle(cornerRadius: 28, style: .continuous)
+          .fill(Color.black.opacity(ExplanationPanelAppearance.backgroundOpacity(for: colorScheme)))
+      }
       .glassEffect(.clear, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
     }
   }
