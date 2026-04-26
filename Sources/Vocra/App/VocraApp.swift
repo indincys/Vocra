@@ -24,5 +24,9 @@ struct VocraApp: App {
       RootView()
         .frame(minWidth: 900, minHeight: 620)
     }
+
+    Settings {
+      SettingsView()
+    }
   }
 }
