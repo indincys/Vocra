@@ -13,7 +13,7 @@ final class AppModel {
 
   private let classifier: TextClassifier
   private let promptRenderer: PromptRenderer
-  private var promptStore: InMemoryPromptStore
+  private let promptStore: UserDefaultsPromptStore
   private let settingsStore: UserDefaultsSettingsStore
   private let apiKeyStore: KeychainAPIKeyStore
   private let selectionReader: any SelectionReader
@@ -25,7 +25,7 @@ final class AppModel {
   init() {
     self.classifier = TextClassifier()
     self.promptRenderer = PromptRenderer()
-    self.promptStore = .defaults()
+    self.promptStore = UserDefaultsPromptStore()
     self.settingsStore = UserDefaultsSettingsStore()
     self.apiKeyStore = KeychainAPIKeyStore()
     self.selectionReader = MacSelectionReader()

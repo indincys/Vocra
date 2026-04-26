@@ -28,4 +28,50 @@ public struct InMemoryPromptStore: PromptStore {
   public mutating func save(_ template: PromptTemplate) {
     templates[template.kind] = template
   }
+
+  public func allTemplates() -> [PromptTemplate] {
+    PromptKind.allCases.compactMap { templates[$0] }
+  }
+}
+
+public final class UserDefaultsPromptStore: PromptStore, @unchecked Sendable {
+  private let defaults: UserDefaults
+  private let key = "vocra.promptTemplates"
+
+  public init(defaults: UserDefaults = .standard) {
+    self.defaults = defaults
+    if defaults.data(forKey: key) == nil {
+      saveAll(InMemoryPromptStore.defaults().allTemplates())
+    }
+  }
+
+  public func template(for kind: PromptKind) -> PromptTemplate? {
+    loadAll().first { $0.kind == kind }
+  }
+
+  public func save(_ template: PromptTemplate) {
+    var templates = loadAll()
+    templates.removeAll { $0.kind == template.kind }
+    templates.append(template)
+    saveAll(templates)
+  }
+
+  public func allTemplates() -> [PromptTemplate] {
+    loadAll().sorted { $0.kind.rawValue < $1.kind.rawValue }
+  }
+
+  private func loadAll() -> [PromptTemplate] {
+    guard
+      let data = defaults.data(forKey: key),
+      let templates = try? JSONDecoder().decode([PromptTemplate].self, from: data)
+    else {
+      return InMemoryPromptStore.defaults().allTemplates()
+    }
+    return templates
+  }
+
+  private func saveAll(_ templates: [PromptTemplate]) {
+    guard let data = try? JSONEncoder().encode(templates) else { return }
+    defaults.set(data, forKey: key)
+  }
 }
