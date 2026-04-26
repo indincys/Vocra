@@ -17,6 +17,11 @@ struct VocraApp: App {
         appModel.pauseShortcutListening(!appModel.isShortcutPaused)
       }
 
+      Button("Check for Updates...") {
+        appModel.appUpdater.checkForUpdates()
+      }
+      .disabled(!appModel.appUpdater.isEnabled)
+
       Divider()
 
       Button("Open Vocra") {

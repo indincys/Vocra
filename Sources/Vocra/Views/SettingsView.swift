@@ -1,3 +1,5 @@
+import AppKit
+import Carbon
 import SwiftUI
 import VocraCore
 
@@ -16,6 +18,8 @@ struct SettingsView: View {
   @State private var phrasePrompt = ""
   @State private var sentencePrompt = ""
   @State private var cardPrompt = ""
+  @State private var keyboardShortcut = VocraCore.KeyboardShortcut.defaultShortcut
+  @State private var isRecordingShortcut = false
   @State private var statusMessage = ""
   @AppStorage("vocra.dailyReminderEnabled") private var dailyReminderEnabled = false
   @AppStorage("vocra.reminderHour") private var reminderHour = 9
@@ -38,6 +42,40 @@ struct SettingsView: View {
         promptEditor("Sentence Explanation", text: $sentencePrompt)
         promptEditor("Vocabulary Card", text: $cardPrompt)
         Button("Save Prompts", action: savePrompts)
+      }
+
+      Section("Shortcut") {
+        HStack {
+          Text("Explain Selection")
+          Spacer()
+          Text(keyboardShortcut.displayString)
+            .font(.body.monospaced())
+            .foregroundStyle(.secondary)
+        }
+
+        HStack {
+          Button(isRecordingShortcut ? "Press New Shortcut..." : "Record Shortcut") {
+            isRecordingShortcut.toggle()
+          }
+
+          Button("Reset to Default") {
+            keyboardShortcut = .defaultShortcut
+            saveKeyboardShortcut()
+          }
+        }
+
+        if isRecordingShortcut {
+          Text("Press a key combination with Command, Option, Control, or Shift. Press Esc to cancel.")
+            .foregroundStyle(.secondary)
+        }
+
+        ShortcutRecorderView(isRecording: $isRecordingShortcut) { shortcut in
+          keyboardShortcut = shortcut
+          isRecordingShortcut = false
+          saveKeyboardShortcut()
+        }
+        .frame(width: 1, height: 1)
+        .accessibilityHidden(true)
       }
 
       Section("Review") {
@@ -83,6 +121,7 @@ struct SettingsView: View {
     phrasePrompt = promptStore.template(for: .phraseExplanation)?.body ?? ""
     sentencePrompt = promptStore.template(for: .sentenceExplanation)?.body ?? ""
     cardPrompt = promptStore.template(for: .vocabularyCard)?.body ?? ""
+    keyboardShortcut = settingsStore.loadKeyboardShortcut()
   }
 
   private func saveAPISettings() {
@@ -116,6 +155,16 @@ struct SettingsView: View {
     promptStore.save(PromptTemplate(kind: .sentenceExplanation, body: sentencePrompt))
     promptStore.save(PromptTemplate(kind: .vocabularyCard, body: cardPrompt))
     statusMessage = "Prompts saved."
+  }
+
+  private func saveKeyboardShortcut() {
+    settingsStore.saveKeyboardShortcut(keyboardShortcut)
+    NotificationCenter.default.post(
+      name: .vocraKeyboardShortcutDidChange,
+      object: nil,
+      userInfo: [VocraNotificationUserInfoKey.keyboardShortcut: keyboardShortcut]
+    )
+    statusMessage = "Shortcut saved: \(keyboardShortcut.displayString)."
   }
 
   @MainActor
@@ -154,5 +203,83 @@ private struct SliderRow: View {
         .monospacedDigit()
         .frame(width: 36, alignment: .trailing)
     }
+  }
+}
+
+private struct ShortcutRecorderView: NSViewRepresentable {
+  @Binding var isRecording: Bool
+  let onCapture: (VocraCore.KeyboardShortcut) -> Void
+
+  func makeNSView(context: Context) -> RecorderView {
+    let view = RecorderView()
+    view.onCapture = onCapture
+    view.onCancel = { isRecording = false }
+    return view
+  }
+
+  func updateNSView(_ nsView: RecorderView, context: Context) {
+    nsView.isRecording = isRecording
+    nsView.onCapture = onCapture
+    nsView.onCancel = { isRecording = false }
+    if isRecording {
+      DispatchQueue.main.async {
+        nsView.window?.makeFirstResponder(nsView)
+      }
+    }
+  }
+
+  final class RecorderView: NSView {
+    var isRecording = false
+    var onCapture: ((VocraCore.KeyboardShortcut) -> Void)?
+    var onCancel: (() -> Void)?
+
+    override var acceptsFirstResponder: Bool {
+      true
+    }
+
+    override func keyDown(with event: NSEvent) {
+      guard isRecording else {
+        super.keyDown(with: event)
+        return
+      }
+
+      if Int(event.keyCode) == kVK_Escape {
+        onCancel?()
+        return
+      }
+
+      guard let shortcut = VocraCore.KeyboardShortcut(event: event) else {
+        NSSound.beep()
+        return
+      }
+
+      onCapture?(shortcut)
+    }
+  }
+}
+
+private extension VocraCore.KeyboardShortcut {
+  init?(event: NSEvent) {
+    let modifiers = Self.carbonModifiers(from: event.modifierFlags)
+    let shortcut = VocraCore.KeyboardShortcut(keyCode: UInt32(event.keyCode), modifiers: modifiers)
+    guard shortcut.isValid else { return nil }
+    self = shortcut
+  }
+
+  static func carbonModifiers(from flags: NSEvent.ModifierFlags) -> UInt32 {
+    var modifiers: UInt32 = 0
+    if flags.contains(.command) {
+      modifiers |= UInt32(cmdKey)
+    }
+    if flags.contains(.option) {
+      modifiers |= UInt32(optionKey)
+    }
+    if flags.contains(.control) {
+      modifiers |= UInt32(controlKey)
+    }
+    if flags.contains(.shift) {
+      modifiers |= UInt32(shiftKey)
+    }
+    return modifiers
   }
 }

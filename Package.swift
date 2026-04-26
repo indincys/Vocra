@@ -9,6 +9,9 @@ let package = Package(
   products: [
     .executable(name: "Vocra", targets: ["Vocra"])
   ],
+  dependencies: [
+    .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.1")
+  ],
   targets: [
     .target(
       name: "VocraCore",
@@ -18,7 +21,10 @@ let package = Package(
     ),
     .executableTarget(
       name: "Vocra",
-      dependencies: ["VocraCore"]
+      dependencies: [
+        "VocraCore",
+        .product(name: "Sparkle", package: "Sparkle")
+      ]
     ),
     .testTarget(
       name: "VocraCoreTests",

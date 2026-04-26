@@ -1,0 +1,73 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version, for example 0.1.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Show Swift toolchain
+        run: swift --version
+
+      - name: Resolve release version
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            VERSION="${{ inputs.version }}"
+            TAG="v$VERSION"
+          else
+            TAG="${GITHUB_REF_NAME}"
+            VERSION="${TAG#v}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Build DMG and Sparkle appcast
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          SPARKLE_PUBLIC_KEY: ${{ secrets.SPARKLE_PUBLIC_KEY }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          VOCRA_TAG: ${{ steps.release.outputs.tag }}
+          VOCRA_BUILD: ${{ github.run_number }}
+        run: ./script/release_github.sh "${{ steps.release.outputs.version }}"
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+          VERSION: ${{ steps.release.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          RELEASE_DIR="dist/releases/$TAG"
+          DMG="$RELEASE_DIR/Vocra-$VERSION.dmg"
+          APPCAST="$RELEASE_DIR/appcast.xml"
+          NOTES="$RELEASE_DIR/Vocra-$VERSION.md"
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$DMG" "$APPCAST" --clobber
+          else
+            gh release create "$TAG" "$DMG" "$APPCAST" \
+              --title "Vocra $VERSION" \
+              --notes-file "$NOTES"
+          fi

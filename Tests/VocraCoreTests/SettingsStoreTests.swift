@@ -1,3 +1,4 @@
+import Carbon
 import XCTest
 @testable import VocraCore
 
@@ -24,5 +25,20 @@ final class SettingsStoreTests: XCTestCase {
     store.saveAPIConfiguration(configuration)
 
     XCTAssertEqual(store.loadAPIConfiguration(), configuration)
+  }
+
+  func testUserDefaultsSettingsStorePersistsKeyboardShortcut() throws {
+    let suiteName = "SettingsStoreTests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let store = UserDefaultsSettingsStore(defaults: defaults)
+    let shortcut = KeyboardShortcut(keyCode: 8, modifiers: UInt32(cmdKey | optionKey))
+
+    XCTAssertEqual(store.loadKeyboardShortcut(), .defaultShortcut)
+
+    store.saveKeyboardShortcut(shortcut)
+
+    XCTAssertEqual(store.loadKeyboardShortcut(), shortcut)
+    XCTAssertEqual(store.loadKeyboardShortcut().displayString, "⌘⌥C")
   }
 }

@@ -9,6 +9,8 @@ final class AppModel {
   var latestMarkdown: String = ""
   var latestErrorMessage: String?
   var isShortcutPaused = false
+  var currentShortcut: KeyboardShortcut
+  let appUpdater = AppUpdater()
   var vocabularyRevision = 0
 
   private let classifier: TextClassifier
@@ -21,6 +23,7 @@ final class AppModel {
   private let reviewScheduler: ReviewScheduler
   private let shortcutService: ShortcutService
   private let floatingPanel = FloatingPanelController()
+  @ObservationIgnored nonisolated(unsafe) private var shortcutChangeObserver: NSObjectProtocol?
 
   init() {
     self.classifier = TextClassifier()
@@ -32,10 +35,34 @@ final class AppModel {
     self.vocabularyRepository = try! SQLiteVocabularyRepository(path: AppModel.databasePath())
     self.reviewScheduler = ReviewScheduler()
     self.shortcutService = ShortcutService()
+    self.currentShortcut = settingsStore.loadKeyboardShortcut()
+    self.shortcutChangeObserver = NotificationCenter.default.addObserver(
+      forName: .vocraKeyboardShortcutDidChange,
+      object: nil,
+      queue: .main
+    ) { [weak self] notification in
+      guard let shortcut = notification.userInfo?[VocraNotificationUserInfoKey.keyboardShortcut] as? KeyboardShortcut else {
+        return
+      }
+      Task { @MainActor in
+        self?.registerShortcut(shortcut)
+      }
+    }
+  }
+
+  deinit {
+    if let shortcutChangeObserver {
+      NotificationCenter.default.removeObserver(shortcutChangeObserver)
+    }
   }
 
   func start() {
-    shortcutService.register { [weak self] in
+    registerShortcut(settingsStore.loadKeyboardShortcut())
+  }
+
+  private func registerShortcut(_ shortcut: KeyboardShortcut) {
+    currentShortcut = shortcut
+    shortcutService.register(shortcut: shortcut) { [weak self] in
       Task { @MainActor in
         await self?.handleShortcut()
       }
