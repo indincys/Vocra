@@ -19,6 +19,11 @@ struct VocraApp: App {
 
   var body: some Scene {
     MenuBarExtra(appName, systemImage: "text.magnifyingglass") {
+      if let shortcutRegistrationErrorMessage = appModel.shortcutRegistrationErrorMessage {
+        Text(shortcutRegistrationErrorMessage)
+        Divider()
+      }
+
       Button("Explain Selection") {
         Task { await appModel.handleShortcut() }
       }

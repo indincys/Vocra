@@ -1,5 +1,36 @@
 import Carbon
 import Foundation
+import OSLog
+
+private let shortcutServiceLogger = Logger(
+  subsystem: Bundle.main.bundleIdentifier ?? "com.indincys.Vocra",
+  category: "ShortcutService"
+)
+
+public protocol ShortcutRegistering: AnyObject {
+  @discardableResult
+  func register(shortcut: KeyboardShortcut, handler: @escaping () -> Void) -> ShortcutRegistrationResult
+  func unregister()
+}
+
+public enum ShortcutRegistrationResult: Equatable, Sendable {
+  case registered
+  case failed(ShortcutRegistrationError)
+}
+
+public enum ShortcutRegistrationError: Error, Equatable, Sendable, CustomStringConvertible {
+  case installEventHandler(OSStatus)
+  case registerHotKey(OSStatus)
+
+  public var description: String {
+    switch self {
+    case .installEventHandler(let status):
+      return "Could not install global shortcut event handler (status \(status))."
+    case .registerHotKey(let status):
+      return "Could not register global shortcut (status \(status))."
+    }
+  }
+}
 
 public struct KeyboardShortcut: Codable, Equatable, Sendable {
   public let keyCode: UInt32
@@ -112,7 +143,7 @@ public struct KeyboardShortcut: Codable, Equatable, Sendable {
   ]
 }
 
-public final class ShortcutService: @unchecked Sendable {
+public final class ShortcutService: ShortcutRegistering, @unchecked Sendable {
   private var hotKeyRef: EventHotKeyRef?
   private var eventHandlerRef: EventHandlerRef?
   private var handler: (() -> Void)?
@@ -126,9 +157,11 @@ public final class ShortcutService: @unchecked Sendable {
     }
   }
 
-  public func register(shortcut: KeyboardShortcut = .defaultShortcut, handler: @escaping () -> Void) {
+  @discardableResult
+  public func register(shortcut: KeyboardShortcut = .defaultShortcut, handler: @escaping () -> Void) -> ShortcutRegistrationResult {
     unregister()
     self.handler = handler
+    shortcutServiceLogger.info("Registering global shortcut: \(shortcut.displayString, privacy: .public).")
 
     if eventHandlerRef == nil {
       var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
@@ -136,13 +169,15 @@ public final class ShortcutService: @unchecked Sendable {
       let installStatus = InstallEventHandler(GetApplicationEventTarget(), { _, _, userData in
         guard let userData else { return noErr }
         let service = Unmanaged<ShortcutService>.fromOpaque(userData).takeUnretainedValue()
+        shortcutServiceLogger.info("Global shortcut event received.")
         service.handler?()
         return noErr
       }, 1, &eventType, Unmanaged.passUnretained(self).toOpaque(), &installedHandler)
 
       guard installStatus == noErr else {
         self.handler = nil
-        return
+        shortcutServiceLogger.error("Global shortcut event handler installation failed: \(installStatus, privacy: .public).")
+        return .failed(.installEventHandler(installStatus))
       }
       eventHandlerRef = installedHandler
     }
@@ -151,7 +186,11 @@ public final class ShortcutService: @unchecked Sendable {
     let registerStatus = RegisterEventHotKey(shortcut.keyCode, shortcut.modifiers, hotKeyID, GetApplicationEventTarget(), 0, &hotKeyRef)
     if registerStatus != noErr {
       self.handler = nil
+      shortcutServiceLogger.error("Global shortcut registration failed: \(registerStatus, privacy: .public).")
+      return .failed(.registerHotKey(registerStatus))
     }
+    shortcutServiceLogger.info("Global shortcut registered: \(shortcut.displayString, privacy: .public).")
+    return .registered
   }
 
   public func unregister() {

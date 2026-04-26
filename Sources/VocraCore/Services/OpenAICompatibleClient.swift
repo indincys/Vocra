@@ -1,4 +1,10 @@
 import Foundation
+import OSLog
+
+private let aiClientLogger = Logger(
+  subsystem: Bundle.main.bundleIdentifier ?? "com.indincys.Vocra",
+  category: "AIClient"
+)
 
 public protocol HTTPClient: Sendable {
   func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse)
@@ -30,8 +36,11 @@ public struct OpenAICompatibleClient: AIClient {
   }
 
   public func complete(prompt: String) async throws -> String {
+    let clock = ContinuousClock()
+    let requestStart = clock.now
     let apiKey = try apiKeyProvider()?.trimmingCharacters(in: .whitespacesAndNewlines)
     guard let apiKey, !apiKey.isEmpty else {
+      aiClientLogger.error("AI request cannot start because the API key is missing.")
       throw AIClientError.missingAPIKey
     }
 
@@ -47,23 +56,47 @@ public struct OpenAICompatibleClient: AIClient {
       ]
     ))
 
-    let (data, response) = try await httpClient.data(for: request)
+    aiClientLogger.info(
+      "AI request started; model: \(configuration.model, privacy: .public); endpoint: \(request.url?.absoluteString ?? "Unknown URL", privacy: .public); prompt characters: \(prompt.count, privacy: .public)."
+    )
+    let data: Data
+    let response: HTTPURLResponse
+    do {
+      (data, response) = try await httpClient.data(for: request)
+    } catch {
+      aiClientLogger.error(
+        "AI request failed after \(aiElapsedMilliseconds(from: requestStart, clock: clock), privacy: .public) ms: \(String(describing: error), privacy: .public)"
+      )
+      throw error
+    }
+    aiClientLogger.info(
+      "AI response received in \(aiElapsedMilliseconds(from: requestStart, clock: clock), privacy: .public) ms; status: \(response.statusCode, privacy: .public); bytes: \(data.count, privacy: .public)."
+    )
     guard (200..<300).contains(response.statusCode) else {
+      aiClientLogger.error("AI response returned non-success status: \(response.statusCode, privacy: .public).")
       throw AIClientError.httpStatus(response.statusCode)
     }
 
     do {
       let completion = try JSONDecoder().decode(ChatCompletionResponse.self, from: data)
       guard let content = completion.choices.first?.message.content, !content.isEmpty else {
+        aiClientLogger.error("AI response decoded with empty content.")
         throw AIClientError.emptyContent
       }
+      aiClientLogger.info("AI response decoded; content characters: \(content.count, privacy: .public).")
       return content
     } catch let error as AIClientError {
       throw error
     } catch {
+      aiClientLogger.error("AI response decoding failed: \(String(describing: error), privacy: .public)")
       throw AIClientError.invalidResponse
     }
   }
+}
+
+private func aiElapsedMilliseconds(from start: ContinuousClock.Instant, clock: ContinuousClock) -> Int64 {
+  let components = start.duration(to: clock.now).components
+  return components.seconds * 1_000 + components.attoseconds / 1_000_000_000_000_000
 }
 
 private struct ChatCompletionRequest: Encodable {

@@ -1,6 +1,12 @@
 import Foundation
 import Observation
+import OSLog
 import VocraCore
+
+private let shortcutFlowLogger = Logger(
+  subsystem: Bundle.main.bundleIdentifier ?? "com.indincys.Vocra",
+  category: "ShortcutFlow"
+)
 
 @MainActor
 @Observable
@@ -12,6 +18,7 @@ final class AppModel {
   var latestErrorMessage: String?
   var isShortcutPaused = false
   var currentShortcut: KeyboardShortcut
+  var shortcutRegistrationErrorMessage: String?
   let appUpdater = AppUpdater()
   var vocabularyRevision = 0
 
@@ -23,7 +30,7 @@ final class AppModel {
   private let selectionReader: any SelectionReader
   private let vocabularyRepository: SQLiteVocabularyRepository
   private let reviewScheduler: ReviewScheduler
-  private let shortcutService: ShortcutService
+  private let shortcutService: any ShortcutRegistering
   private let panelPresenter: any ExplanationPanelPresenting
   private let explanationProvider: ExplanationProvider?
   @ObservationIgnored nonisolated(unsafe) private var shortcutChangeObserver: NSObjectProtocol?
@@ -41,7 +48,7 @@ final class AppModel {
     selectionReader: any SelectionReader = MacSelectionReader(),
     vocabularyRepository: SQLiteVocabularyRepository,
     reviewScheduler: ReviewScheduler = ReviewScheduler(),
-    shortcutService: ShortcutService = ShortcutService(),
+    shortcutService: any ShortcutRegistering = ShortcutService(),
     panelPresenter: any ExplanationPanelPresenting = FloatingPanelController(),
     explanationProvider: ExplanationProvider? = nil
   ) {
@@ -83,10 +90,18 @@ final class AppModel {
 
   private func registerShortcut(_ shortcut: KeyboardShortcut) {
     currentShortcut = shortcut
-    shortcutService.register(shortcut: shortcut) { [weak self] in
+    let result = shortcutService.register(shortcut: shortcut) { [weak self] in
       Task { @MainActor in
         await self?.handleShortcut()
       }
+    }
+    switch result {
+    case .registered:
+      shortcutRegistrationErrorMessage = nil
+      shortcutFlowLogger.info("Registered global shortcut: \(shortcut.displayString, privacy: .public).")
+    case .failed(let error):
+      shortcutRegistrationErrorMessage = error.description
+      shortcutFlowLogger.error("Global shortcut registration failed: \(error.description, privacy: .public)")
     }
   }
 
@@ -95,17 +110,35 @@ final class AppModel {
   }
 
   func handleShortcut() async {
-    guard !isShortcutPaused else { return }
+    guard !isShortcutPaused else {
+      shortcutFlowLogger.info("Shortcut ignored because listening is paused.")
+      return
+    }
+
+    let clock = ContinuousClock()
+    let flowStart = clock.now
     var capturedForError: CapturedText?
+    shortcutFlowLogger.info("Shortcut handling started.")
     do {
       latestErrorMessage = nil
       latestMarkdown = ""
       latestCapturedText = nil
 
+      let selectionStart = clock.now
       let selection = try await selectionReader.readSelection()
+      shortcutFlowLogger.info(
+        "Selection read in \(elapsedMilliseconds(from: selectionStart, clock: clock), privacy: .public) ms; characters: \(selection.text.count, privacy: .public); source: \(selection.sourceApp ?? "Unknown App", privacy: .public)."
+      )
       let captured = classifier.classify(selection.text, sourceApp: selection.sourceApp)
       capturedForError = captured
+      latestCapturedText = captured
+      refreshPanel()
+
+      let explanationStart = clock.now
       let markdown = try await explain(captured)
+      shortcutFlowLogger.info(
+        "Explanation completed in \(elapsedMilliseconds(from: explanationStart, clock: clock), privacy: .public) ms; mode: \(captured.mode.rawValue, privacy: .public); markdown characters: \(markdown.count, privacy: .public)."
+      )
 
       if captured.mode == .word || captured.mode == .phrase {
         let vocabularyType: VocabularyType = captured.mode == .word ? .word : .phrase
@@ -123,11 +156,17 @@ final class AppModel {
       latestMarkdown = markdown
       latestErrorMessage = nil
       refreshPanel()
+      shortcutFlowLogger.info(
+        "Shortcut handling finished in \(elapsedMilliseconds(from: flowStart, clock: clock), privacy: .public) ms."
+      )
     } catch {
       latestCapturedText = capturedForError
       latestMarkdown = ""
       latestErrorMessage = String(describing: error)
       refreshPanel()
+      shortcutFlowLogger.error(
+        "Shortcut handling failed after \(elapsedMilliseconds(from: flowStart, clock: clock), privacy: .public) ms: \(String(describing: error), privacy: .public)"
+      )
     }
   }
 
@@ -216,4 +255,9 @@ final class AppModel {
     try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     return folder.appending(path: "vocra.sqlite").path
   }
+}
+
+private func elapsedMilliseconds(from start: ContinuousClock.Instant, clock: ContinuousClock) -> Int64 {
+  let components = start.duration(to: clock.now).components
+  return components.seconds * 1_000 + components.attoseconds / 1_000_000_000_000_000
 }
