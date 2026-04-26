@@ -5,6 +5,7 @@ struct SettingsView: View {
   private let settingsStore = UserDefaultsSettingsStore()
   private let apiKeyStore = KeychainAPIKeyStore()
   private let promptStore = UserDefaultsPromptStore()
+  private let reminderService = ReviewReminderService()
 
   @State private var baseURL = APIConfiguration.default.baseURL.absoluteString
   @State private var model = APIConfiguration.default.model
@@ -16,6 +17,9 @@ struct SettingsView: View {
   @State private var sentencePrompt = ""
   @State private var cardPrompt = ""
   @State private var statusMessage = ""
+  @AppStorage("vocra.dailyReminderEnabled") private var dailyReminderEnabled = false
+  @AppStorage("vocra.reminderHour") private var reminderHour = 9
+  @AppStorage("vocra.reminderMinute") private var reminderMinute = 0
 
   var body: some View {
     Form {
@@ -34,6 +38,17 @@ struct SettingsView: View {
         promptEditor("Sentence Explanation", text: $sentencePrompt)
         promptEditor("Vocabulary Card", text: $cardPrompt)
         Button("Save Prompts", action: savePrompts)
+      }
+
+      Section("Review") {
+        Toggle("Daily Reminder", isOn: $dailyReminderEnabled)
+        Stepper("Hour: \(reminderHour)", value: $reminderHour, in: 0...23)
+        Stepper("Minute: \(reminderMinute)", value: $reminderMinute, in: 0...59, step: 5)
+        Button(dailyReminderEnabled ? "Schedule Daily Reminder" : "Disable Daily Reminder") {
+          Task {
+            await saveReminderPreference()
+          }
+        }
       }
 
       if !statusMessage.isEmpty {
@@ -101,6 +116,28 @@ struct SettingsView: View {
     promptStore.save(PromptTemplate(kind: .sentenceExplanation, body: sentencePrompt))
     promptStore.save(PromptTemplate(kind: .vocabularyCard, body: cardPrompt))
     statusMessage = "Prompts saved."
+  }
+
+  @MainActor
+  private func saveReminderPreference() async {
+    if dailyReminderEnabled {
+      do {
+        let granted = try await reminderService.requestAuthorization()
+        guard granted else {
+          dailyReminderEnabled = false
+          statusMessage = "Notification permission was not granted."
+          return
+        }
+        try await reminderService.scheduleDailyReminder(hour: reminderHour, minute: reminderMinute, dueCount: 0)
+        statusMessage = "Daily reminder scheduled."
+      } catch {
+        dailyReminderEnabled = false
+        statusMessage = "Could not schedule reminder: \(error)"
+      }
+    } else {
+      reminderService.cancelDailyReminder()
+      statusMessage = "Daily reminder disabled."
+    }
   }
 }
 
