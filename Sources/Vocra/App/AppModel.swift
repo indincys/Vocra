@@ -1,0 +1,124 @@
+import Foundation
+import Observation
+import VocraCore
+
+@MainActor
+@Observable
+final class AppModel {
+  var latestCapturedText: CapturedText?
+  var latestMarkdown: String = ""
+  var latestErrorMessage: String?
+  var isShortcutPaused = false
+
+  private let classifier: TextClassifier
+  private let promptRenderer: PromptRenderer
+  private var promptStore: InMemoryPromptStore
+  private let settingsStore: UserDefaultsSettingsStore
+  private let apiKeyStore: KeychainAPIKeyStore
+  private let selectionReader: any SelectionReader
+  private let vocabularyRepository: SQLiteVocabularyRepository
+  private let reviewScheduler: ReviewScheduler
+  private let shortcutService: ShortcutService
+
+  init() {
+    self.classifier = TextClassifier()
+    self.promptRenderer = PromptRenderer()
+    self.promptStore = .defaults()
+    self.settingsStore = UserDefaultsSettingsStore()
+    self.apiKeyStore = KeychainAPIKeyStore()
+    self.selectionReader = MacSelectionReader()
+    self.vocabularyRepository = try! SQLiteVocabularyRepository(path: AppModel.databasePath())
+    self.reviewScheduler = ReviewScheduler()
+    self.shortcutService = ShortcutService()
+  }
+
+  func start() {
+    shortcutService.register { [weak self] in
+      Task { @MainActor in
+        await self?.handleShortcut()
+      }
+    }
+  }
+
+  func pauseShortcutListening(_ paused: Bool) {
+    isShortcutPaused = paused
+  }
+
+  func handleShortcut() async {
+    guard !isShortcutPaused else { return }
+    do {
+      latestErrorMessage = nil
+      latestMarkdown = ""
+
+      let selection = try await selectionReader.readSelection()
+      let captured = classifier.classify(selection.text, sourceApp: selection.sourceApp)
+      latestCapturedText = captured
+      let markdown = try await explain(captured)
+      latestMarkdown = markdown
+
+      if captured.mode == .word || captured.mode == .phrase {
+        let vocabularyType: VocabularyType = captured.mode == .word ? .word : .phrase
+        _ = try vocabularyRepository.upsert(
+          text: captured.cleanedText,
+          type: vocabularyType,
+          cardMarkdown: markdown,
+          sourceApp: captured.sourceApp,
+          now: Date()
+        )
+      }
+    } catch {
+      latestErrorMessage = String(describing: error)
+    }
+  }
+
+  func explainWithMode(_ mode: ExplanationMode) async {
+    guard let current = latestCapturedText else { return }
+    let adjusted = CapturedText(originalText: current.originalText, cleanedText: current.cleanedText, mode: mode, sourceApp: current.sourceApp)
+    latestCapturedText = adjusted
+    do {
+      latestErrorMessage = nil
+      latestMarkdown = ""
+      latestMarkdown = try await explain(adjusted)
+    } catch {
+      latestErrorMessage = String(describing: error)
+    }
+  }
+
+  func dueCards() -> [VocabularyCard] {
+    (try? vocabularyRepository.dueCards(now: Date())) ?? []
+  }
+
+  func applyReview(cardID: UUID, rating: ReviewRating) {
+    try? vocabularyRepository.applyReview(cardID: cardID, rating: rating, now: Date(), scheduler: reviewScheduler)
+  }
+
+  private func explain(_ captured: CapturedText) async throws -> String {
+    let kind: PromptKind = switch captured.mode {
+    case .word: .wordExplanation
+    case .phrase: .phraseExplanation
+    case .sentence: .sentenceExplanation
+    }
+    let template = promptStore.template(for: kind)!
+    let context = PromptContext(
+      text: captured.cleanedText,
+      type: captured.mode,
+      sourceApp: captured.sourceApp,
+      surroundingContext: "",
+      createdAt: ISO8601DateFormatter().string(from: Date())
+    )
+    let prompt = try promptRenderer.render(template, context: context)
+    let apiKeyStore = self.apiKeyStore
+    let client = OpenAICompatibleClient(
+      configuration: settingsStore.loadAPIConfiguration(),
+      apiKeyProvider: { try apiKeyStore.readAPIKey() }
+    )
+    return try await client.complete(prompt: prompt)
+  }
+
+  private static func databasePath() -> String {
+    let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+    let folder = support.appending(path: "Vocra", directoryHint: .isDirectory)
+    try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    return folder.appending(path: "vocra.sqlite").path
+  }
+}

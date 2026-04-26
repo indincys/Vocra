@@ -4,9 +4,21 @@ import SwiftUI
 struct VocraApp: App {
   @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
   @Environment(\.openWindow) private var openWindow
+  @State private var appModel = AppModel()
 
   var body: some Scene {
     MenuBarExtra("Vocra", systemImage: "text.magnifyingglass") {
+      Button("Explain Selection") {
+        Task { await appModel.handleShortcut() }
+      }
+      .keyboardShortcut("e")
+
+      Button(appModel.isShortcutPaused ? "Resume Shortcut" : "Pause Shortcut") {
+        appModel.pauseShortcutListening(!appModel.isShortcutPaused)
+      }
+
+      Divider()
+
       Button("Open Vocra") {
         openWindow(id: "main")
         NSApp.activate(ignoringOtherApps: true)
@@ -21,8 +33,11 @@ struct VocraApp: App {
     }
 
     WindowGroup("Vocra", id: "main") {
-      RootView()
+      RootView(appModel: appModel)
         .frame(minWidth: 900, minHeight: 620)
+        .task {
+          appModel.start()
+        }
     }
 
     Settings {
