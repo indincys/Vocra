@@ -24,8 +24,20 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Show Swift toolchain
-        run: swift --version
+      - name: Select Swift 6.2 toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r xcode_app; do
+            sudo xcode-select -s "$xcode_app/Contents/Developer"
+            if swift --version | grep -q "Swift version 6.2"; then
+              exit 0
+            fi
+          done < <(find /Applications -maxdepth 1 -name "Xcode*.app" -type d | sort -r)
+
+          echo "No installed Xcode provides Swift 6.2." >&2
+          swift --version >&2 || true
+          exit 1
 
       - name: Resolve release version
         id: release
