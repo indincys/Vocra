@@ -12,10 +12,13 @@ public enum APIKeyStoreError: Error, Equatable, Sendable {
 }
 
 public struct KeychainAPIKeyStore: APIKeyStore {
-  private let service = "com.indincys.Vocra"
-  private let account = "OpenAICompatibleAPIKey"
+  private let service: String
+  private let account: String
 
-  public init() {}
+  public init(service: String = "com.indincys.Vocra", account: String = "OpenAICompatibleAPIKey") {
+    self.service = service
+    self.account = account
+  }
 
   public func readAPIKey() throws -> String? {
     var query = baseQuery()
@@ -31,11 +34,17 @@ public struct KeychainAPIKeyStore: APIKeyStore {
   }
 
   public func saveAPIKey(_ key: String) throws {
-    try deleteAPIKey()
+    let attributes = [kSecValueData as String: Data(key.utf8)]
+    let updateStatus = SecItemUpdate(baseQuery() as CFDictionary, attributes as CFDictionary)
+    if updateStatus == errSecSuccess { return }
+    guard updateStatus == errSecItemNotFound else {
+      throw APIKeyStoreError.keychainStatus(updateStatus)
+    }
+
     var item = baseQuery()
     item[kSecValueData as String] = Data(key.utf8)
-    let status = SecItemAdd(item as CFDictionary, nil)
-    guard status == errSecSuccess else { throw APIKeyStoreError.keychainStatus(status) }
+    let addStatus = SecItemAdd(item as CFDictionary, nil)
+    guard addStatus == errSecSuccess else { throw APIKeyStoreError.keychainStatus(addStatus) }
   }
 
   public func deleteAPIKey() throws {
