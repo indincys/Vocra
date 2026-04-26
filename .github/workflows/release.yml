@@ -48,7 +48,6 @@ jobs:
           SPARKLE_PUBLIC_KEY: ${{ secrets.SPARKLE_PUBLIC_KEY }}
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
           VOCRA_TAG: ${{ steps.release.outputs.tag }}
-          VOCRA_BUILD: ${{ github.run_number }}
         run: ./script/release_github.sh "${{ steps.release.outputs.version }}"
 
       - name: Publish GitHub release
