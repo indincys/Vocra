@@ -14,10 +14,45 @@ public struct InMemoryPromptStore: PromptStore {
 
   public static func defaults() -> InMemoryPromptStore {
     InMemoryPromptStore(templates: [
-      .wordExplanation: PromptTemplate(kind: .wordExplanation, body: "Explain this English word for a Chinese AI learner: {{text}}"),
-      .phraseExplanation: PromptTemplate(kind: .phraseExplanation, body: "Explain this AI or technical English term for a Chinese learner: {{text}}"),
-      .sentenceExplanation: PromptTemplate(kind: .sentenceExplanation, body: "Explain the grammar, sentence structure, and meaning of this English sentence in Chinese: {{text}}"),
-      .vocabularyCard: PromptTemplate(kind: .vocabularyCard, body: "Create a Markdown vocabulary card for {{type}}: {{text}}")
+      .sentenceAnalysisSchema: PromptTemplate(
+        kind: .sentenceAnalysisSchema,
+        body: """
+        Return a single JSON object for a deep Chinese learning analysis of this English sentence.
+        The object must match LearningExplanationDocument schemaVersion 1.
+        Use mode "sentence".
+        Include sentenceAnalysis with headline, sentence.segments, structureBreakdown, relationshipDiagram, logicSummary, translation, and keyVocabulary.
+        Do not include Markdown fences or prose outside JSON.
+        Text: {{text}}
+        Source app: {{sourceApp}}
+        Created at: {{createdAt}}
+        """
+      ),
+      .wordExplanationSchema: PromptTemplate(
+        kind: .wordExplanationSchema,
+        body: """
+        Return a single JSON object for a deep Chinese explanation of this English {{type}}.
+        The object must match LearningExplanationDocument schemaVersion 1.
+        Use mode "{{type}}" and populate wordExplanation.
+        Include term, pronunciation when useful, partOfSpeech, coreMeaning, contextualMeaning, usageNotes, collocations, examples, and commonMistakes.
+        Do not include Markdown fences or prose outside JSON.
+        Text: {{text}}
+        Source app: {{sourceApp}}
+        Created at: {{createdAt}}
+        """
+      ),
+      .vocabularyCardSchema: PromptTemplate(
+        kind: .vocabularyCardSchema,
+        body: """
+        Return a single JSON object for a structured vocabulary review card.
+        The object must match LearningExplanationDocument schemaVersion 1.
+        Use mode "{{type}}" and populate vocabularyCard.
+        Include front, back, examples, and reviewPrompts.
+        Do not include Markdown fences or prose outside JSON.
+        Text: {{text}}
+        Source app: {{sourceApp}}
+        Created at: {{createdAt}}
+        """
+      )
     ])
   }
 

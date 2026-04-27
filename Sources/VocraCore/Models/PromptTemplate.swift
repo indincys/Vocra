@@ -1,10 +1,14 @@
 import Foundation
 
 public enum PromptKind: String, CaseIterable, Codable, Equatable, Sendable {
-  case wordExplanation
-  case phraseExplanation
-  case sentenceExplanation
-  case vocabularyCard
+  case sentenceAnalysisSchema
+  case wordExplanationSchema
+  case vocabularyCardSchema
+
+  public static var wordExplanation: PromptKind { .wordExplanationSchema }
+  public static var phraseExplanation: PromptKind { .wordExplanationSchema }
+  public static var sentenceExplanation: PromptKind { .sentenceAnalysisSchema }
+  public static var vocabularyCard: PromptKind { .vocabularyCardSchema }
 }
 
 public struct PromptTemplate: Codable, Equatable, Sendable {
