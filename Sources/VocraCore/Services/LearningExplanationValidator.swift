@@ -85,6 +85,9 @@ public struct LearningExplanationValidator: Sendable {
     try requireText(analysis.sentence.text, field: "sentenceAnalysis.sentence.text")
     try requireText(analysis.structureBreakdown.title, field: "sentenceAnalysis.structureBreakdown.title")
     try requireUniqueIDs(analysis.sentence.segments.map(\.id), scope: "sentence.segments")
+    for segment in analysis.sentence.segments {
+      try requireText(segment.text, field: "sentenceAnalysis.sentence.segments.\(segment.id).text")
+    }
     try requireUniqueIDs(analysis.relationshipDiagram.nodes.map(\.id), scope: "relationshipDiagram.nodes")
     for node in analysis.relationshipDiagram.nodes {
       try requireText(node.title, field: "sentenceAnalysis.relationshipDiagram.nodes.\(node.id).title")
@@ -100,6 +103,7 @@ public struct LearningExplanationValidator: Sendable {
   private func validateStructureItems(_ items: [StructureItem], scope: String, seen: inout Set<String>) throws {
     for item in items {
       try requireText(item.id, field: "\(scope).id")
+      try requireText(item.text, field: "sentenceAnalysis.\(scope).\(item.id).text")
       if seen.contains(item.id) {
         throw LearningExplanationValidationError.duplicateID(scope, item.id)
       }

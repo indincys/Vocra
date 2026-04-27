@@ -31,6 +31,18 @@ final class LearningExplanationValidatorTests: XCTestCase {
     }
   }
 
+  func testRejectsEmptySentenceSegmentText() throws {
+    var document = validSentenceDocument()
+    document.sentenceAnalysis?.sentence.segments = [
+      SentenceSegment(id: "s1", text: "Codex", role: "subject", labelZh: "主语", labelEn: "Subject", color: .blue),
+      SentenceSegment(id: "s2", text: " ", role: "predicate", labelZh: "谓语", labelEn: "Predicate", color: .green)
+    ]
+
+    XCTAssertThrowsError(try LearningExplanationValidator().validate(document, expectedMode: .sentence, expectedSourceText: "Codex works best.")) { error in
+      XCTAssertEqual(error as? LearningExplanationValidationError, .emptyRequiredField("sentenceAnalysis.sentence.segments.s2.text"))
+    }
+  }
+
   func testRejectsMissingSentenceRequiredTextFields() throws {
     let cases: [(String, (inout LearningExplanationDocument) -> Void)] = [
       ("sentenceAnalysis.structureBreakdown.title", { $0.sentenceAnalysis?.structureBreakdown.title = " " }),
@@ -106,6 +118,41 @@ final class LearningExplanationValidatorTests: XCTestCase {
 
     XCTAssertThrowsError(try LearningExplanationValidator().validate(document, expectedMode: .sentence, expectedSourceText: "Codex works best.")) { error in
       XCTAssertEqual(error as? LearningExplanationValidationError, .duplicateID("structureBreakdown.items", "shared"))
+    }
+  }
+
+  func testRejectsEmptyStructureItemText() throws {
+    let cases: [(String, [StructureItem])] = [
+      (
+        "sentenceAnalysis.structureBreakdown.items.root.text",
+        [
+          StructureItem(id: "root", text: " ", role: "sentence", labelZh: "句子", labelEn: "Sentence", children: [])
+        ]
+      ),
+      (
+        "sentenceAnalysis.structureBreakdown.items.child.text",
+        [
+          StructureItem(
+            id: "root",
+            text: "Codex works best.",
+            role: "sentence",
+            labelZh: "句子",
+            labelEn: "Sentence",
+            children: [
+              StructureItem(id: "child", text: "\n", role: "subject", labelZh: "主语", labelEn: "Subject", children: [])
+            ]
+          )
+        ]
+      )
+    ]
+
+    for (field, items) in cases {
+      var document = validSentenceDocument()
+      document.sentenceAnalysis?.structureBreakdown.items = items
+
+      XCTAssertThrowsError(try LearningExplanationValidator().validate(document, expectedMode: .sentence, expectedSourceText: "Codex works best."), field) { error in
+        XCTAssertEqual(error as? LearningExplanationValidationError, .emptyRequiredField(field))
+      }
     }
   }
 
