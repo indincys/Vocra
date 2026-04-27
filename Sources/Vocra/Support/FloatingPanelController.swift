@@ -17,8 +17,9 @@ final class FloatingPanelController: ExplanationPanelPresenting {
   ) {
     present(rootView: ExplanationPanelView(
       capturedText: content.capturedText,
-      markdown: content.markdown,
+      document: content.document,
       errorMessage: content.errorMessage,
+      validationErrorMessage: content.validationErrorMessage,
       onSwitchMode: onSwitchMode,
       onClose: onClose
     ))

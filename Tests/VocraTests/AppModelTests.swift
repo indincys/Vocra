@@ -14,7 +14,10 @@ final class AppModelTests: XCTestCase {
       panelPresenter: panelPresenter,
       explanationProvider: { _ in
         await explanationGate.wait()
-        return "# inconsistently\n\n**Meaning**"
+        return testWordDocument(text: "inconsistently", mode: .word)
+      },
+      vocabularyCardProvider: { captured in
+        testVocabularyCardDocument(text: captured.cleanedText, mode: captured.mode)
       }
     )
 
@@ -27,8 +30,9 @@ final class AppModelTests: XCTestCase {
     let didShowCapturedLoadingPanel = await waitForPanelContents(panelPresenter, count: 1)
     XCTAssertTrue(didShowCapturedLoadingPanel)
     XCTAssertEqual(panelPresenter.contents.first?.capturedText?.cleanedText, "inconsistently")
-    XCTAssertEqual(panelPresenter.contents.first?.markdown, "")
+    XCTAssertNil(panelPresenter.contents.first?.document)
     XCTAssertNil(panelPresenter.contents.first?.errorMessage)
+    XCTAssertNil(panelPresenter.contents.first?.validationErrorMessage)
 
     explanationGate.open()
     await task.value
@@ -43,7 +47,10 @@ final class AppModelTests: XCTestCase {
       panelPresenter: panelPresenter,
       explanationProvider: { _ in
         await explanationGate.wait()
-        return "# inconsistently\n\n**Meaning**"
+        return testWordDocument(text: "inconsistently", mode: .word)
+      },
+      vocabularyCardProvider: { captured in
+        testVocabularyCardDocument(text: captured.cleanedText, mode: captured.mode)
       }
     )
 
@@ -55,14 +62,16 @@ final class AppModelTests: XCTestCase {
       return
     }
     XCTAssertEqual(panelPresenter.contents[0].capturedText?.cleanedText, "inconsistently")
-    XCTAssertEqual(panelPresenter.contents[0].markdown, "")
+    XCTAssertNil(panelPresenter.contents[0].document)
     XCTAssertNil(panelPresenter.contents[0].errorMessage)
+    XCTAssertNil(panelPresenter.contents[0].validationErrorMessage)
 
     explanationGate.open()
     await task.value
 
-    XCTAssertEqual(panelPresenter.contents.last?.markdown, "# inconsistently\n\n**Meaning**")
+    XCTAssertEqual(panelPresenter.contents.last?.document?.sourceText, "inconsistently")
     XCTAssertNil(panelPresenter.contents.last?.errorMessage)
+    XCTAssertNil(panelPresenter.contents.last?.validationErrorMessage)
   }
 
   func testLatestShortcutResultWinsWhenExplanationsCompleteOutOfOrder() async throws {
@@ -81,13 +90,16 @@ final class AppModelTests: XCTestCase {
         switch captured.cleanedText {
         case "ambitious":
           await firstExplanationGate.wait()
-          return "# ambitious\n\nOld result"
+          return testWordDocument(text: "ambitious", mode: captured.mode)
         case "bullet":
           await secondExplanationGate.wait()
-          return "# bullet\n\nLatest result"
+          return testWordDocument(text: "bullet", mode: captured.mode)
         default:
-          return "# \(captured.cleanedText)"
+          return testWordDocument(text: captured.cleanedText, mode: captured.mode)
         }
+      },
+      vocabularyCardProvider: { captured in
+        testVocabularyCardDocument(text: captured.cleanedText, mode: captured.mode)
       }
     )
 
@@ -104,13 +116,52 @@ final class AppModelTests: XCTestCase {
     secondExplanationGate.open()
     await secondTask.value
     XCTAssertEqual(panelPresenter.contents.last?.capturedText?.cleanedText, "bullet")
-    XCTAssertEqual(panelPresenter.contents.last?.markdown, "# bullet\n\nLatest result")
+    XCTAssertEqual(panelPresenter.contents.last?.document?.sourceText, "bullet")
 
     firstExplanationGate.open()
     await firstTask.value
 
     XCTAssertEqual(panelPresenter.contents.last?.capturedText?.cleanedText, "bullet")
-    XCTAssertEqual(panelPresenter.contents.last?.markdown, "# bullet\n\nLatest result")
+    XCTAssertEqual(panelPresenter.contents.last?.document?.sourceText, "bullet")
+  }
+
+  func testStaleShortcutDoesNotStoreVocabularyCardAfterNewerRequestStarts() async throws {
+    let panelPresenter = RecordingPanelPresenter()
+    let repository = try SQLiteVocabularyRepository.inMemory()
+    let selectionReader = SequencedSelectionReader(selections: [
+      CapturedTextSelection(text: "ambitious", sourceApp: "Tests"),
+      CapturedTextSelection(text: "bullet", sourceApp: "Tests")
+    ])
+    let firstCardGate = AsyncGate()
+    var requestedCardTexts: [String] = []
+    let model = AppModel(
+      selectionReader: selectionReader,
+      vocabularyRepository: repository,
+      panelPresenter: panelPresenter,
+      explanationProvider: { captured in
+        testWordDocument(text: captured.cleanedText, mode: captured.mode)
+      },
+      vocabularyCardProvider: { captured in
+        requestedCardTexts.append(captured.cleanedText)
+        if captured.cleanedText == "ambitious" {
+          await firstCardGate.wait()
+        }
+        return testVocabularyCardDocument(text: captured.cleanedText, mode: captured.mode)
+      }
+    )
+
+    let firstTask = Task { await model.handleShortcut() }
+    let didRequestFirstCard = await waitForCondition { requestedCardTexts == ["ambitious"] }
+    XCTAssertTrue(didRequestFirstCard)
+
+    let secondTask = Task { await model.handleShortcut() }
+    await secondTask.value
+
+    firstCardGate.open()
+    await firstTask.value
+
+    let cards = try repository.allCards()
+    XCTAssertEqual(cards.map(\.text), ["bullet"])
   }
 
   func testShortcutPresentsSingleErrorPanelWhenExplanationFails() async throws {
@@ -127,6 +178,60 @@ final class AppModelTests: XCTestCase {
     XCTAssertEqual(panelPresenter.contents.count, 2)
     XCTAssertEqual(panelPresenter.contents.last?.capturedText?.cleanedText, "inconsistently")
     XCTAssertEqual(panelPresenter.contents.last?.errorMessage, String(describing: TestError.explanationFailed))
+    XCTAssertNil(panelPresenter.contents.last?.validationErrorMessage)
+  }
+
+  func testShortcutPresentsValidationErrorSeparatelyWhenExplanationValidationFails() async throws {
+    let panelPresenter = RecordingPanelPresenter()
+    let model = try AppModel(
+      selectionReader: StubSelectionReader(selection: CapturedTextSelection(text: "Codex works best.", sourceApp: "Tests")),
+      vocabularyRepository: .inMemory(),
+      panelPresenter: panelPresenter,
+      explanationProvider: { _ in throw LearningExplanationValidationError.missingBranch("sentenceAnalysis") }
+    )
+
+    await model.handleShortcut()
+
+    XCTAssertEqual(panelPresenter.contents.count, 2)
+    XCTAssertEqual(panelPresenter.contents.last?.capturedText?.cleanedText, "Codex works best.")
+    XCTAssertNil(panelPresenter.contents.last?.errorMessage)
+    XCTAssertEqual(
+      panelPresenter.contents.last?.validationErrorMessage,
+      LearningExplanationValidationError.missingBranch("sentenceAnalysis").description
+    )
+  }
+
+  func testShortcutStoresVocabularyCardsFromDedicatedCardProvider() async throws {
+    let panelPresenter = RecordingPanelPresenter()
+    let repository = try SQLiteVocabularyRepository.inMemory()
+    var capturedForExplanation: CapturedText?
+    var capturedForCard: CapturedText?
+    let model = AppModel(
+      selectionReader: StubSelectionReader(selection: CapturedTextSelection(text: "context window", sourceApp: "Tests")),
+      vocabularyRepository: repository,
+      panelPresenter: panelPresenter,
+      explanationProvider: { captured in
+        capturedForExplanation = captured
+        return testWordDocument(text: captured.cleanedText, mode: captured.mode)
+      },
+      vocabularyCardProvider: { captured in
+        capturedForCard = captured
+        return testVocabularyCardDocument(text: captured.cleanedText, mode: captured.mode)
+      }
+    )
+
+    await model.handleShortcut()
+
+    XCTAssertEqual(capturedForExplanation?.cleanedText, "context window")
+    XCTAssertEqual(capturedForCard?.cleanedText, "context window")
+    let card = try XCTUnwrap(repository.allCards().first)
+    XCTAssertEqual(card.text, "context window")
+    XCTAssertEqual(card.type, .phrase)
+    let storedDocument = try JSONDecoder().decode(LearningExplanationDocument.self, from: Data(card.cardJSON.utf8))
+    XCTAssertNil(storedDocument.wordExplanation)
+    XCTAssertNotNil(storedDocument.vocabularyCard)
+    XCTAssertEqual(storedDocument.vocabularyCard?.back.coreMeaning, "Card meaning for context window")
+    XCTAssertEqual(storedDocument.sourceText, "context window")
   }
 
   func testStartStoresShortcutRegistrationFailureMessage() throws {
@@ -218,6 +323,81 @@ private enum TestError: Error {
   case explanationFailed
 }
 
+private func testSentenceDocument(text: String) -> LearningExplanationDocument {
+  LearningExplanationDocument(
+    schemaVersion: LearningExplanationDocument.currentSchemaVersion,
+    mode: .sentence,
+    sourceText: text,
+    language: LearningExplanationLanguage(source: "en", explanation: "zh-Hans"),
+    sentenceAnalysis: SentenceAnalysis(
+      headline: LearningHeadline(title: "Sentence", subtitle: "Analysis"),
+      sentence: AnalyzedSentence(
+        text: text,
+        segments: [
+          SentenceSegment(id: "s1", text: text, role: "sentence", labelZh: "句子", labelEn: "Sentence", color: .blue)
+        ]
+      ),
+      structureBreakdown: StructureBreakdown(title: "Structure", items: []),
+      relationshipDiagram: RelationshipDiagram(nodes: [], edges: []),
+      logicSummary: LogicSummary(title: "Meaning", points: ["Point for \(text)"], coreMeaning: "Meaning for \(text)"),
+      translation: TranslationBlock(title: "Translation", text: "Translation for \(text)"),
+      keyVocabulary: []
+    ),
+    wordExplanation: nil,
+    vocabularyCard: nil,
+    warnings: []
+  )
+}
+
+private func testWordDocument(text: String, mode: ExplanationMode) -> LearningExplanationDocument {
+  LearningExplanationDocument(
+    schemaVersion: LearningExplanationDocument.currentSchemaVersion,
+    mode: mode,
+    sourceText: text,
+    language: LearningExplanationLanguage(source: "en", explanation: "zh-Hans"),
+    sentenceAnalysis: nil,
+    wordExplanation: WordExplanation(
+      term: text,
+      pronunciation: nil,
+      partOfSpeech: mode == .word ? "word" : "phrase",
+      coreMeaning: "Explanation meaning for \(text)",
+      contextualMeaning: "Contextual meaning for \(text)",
+      usageNotes: ["Usage for \(text)"],
+      collocations: ["\(text) example"],
+      examples: [
+        LearningExample(sentence: "Use \(text).", translation: "使用 \(text)。", note: nil)
+      ],
+      commonMistakes: []
+    ),
+    vocabularyCard: nil,
+    warnings: []
+  )
+}
+
+private func testVocabularyCardDocument(text: String, mode: ExplanationMode) -> LearningExplanationDocument {
+  LearningExplanationDocument(
+    schemaVersion: LearningExplanationDocument.currentSchemaVersion,
+    mode: mode,
+    sourceText: text,
+    language: LearningExplanationLanguage(source: "en", explanation: "zh-Hans"),
+    sentenceAnalysis: nil,
+    wordExplanation: nil,
+    vocabularyCard: StructuredVocabularyCard(
+      front: VocabularyCardFront(text: text, hint: "Hint for \(text)"),
+      back: VocabularyCardBack(
+        coreMeaning: "Card meaning for \(text)",
+        memoryNote: "Memory note for \(text)",
+        usage: "Usage for \(text)"
+      ),
+      examples: [
+        VocabularyCardExample(sentence: "Review \(text).", translation: "复习 \(text)。")
+      ],
+      reviewPrompts: ["What does \(text) mean?"]
+    ),
+    warnings: []
+  )
+}
+
 private final class AsyncGate: @unchecked Sendable {
   private let lock = NSLock()
   private var isOpen = false
@@ -249,8 +429,15 @@ private final class AsyncGate: @unchecked Sendable {
 
 @MainActor
 private func waitForPanelContents(_ presenter: RecordingPanelPresenter, count: Int) async -> Bool {
+  await waitForCondition {
+    presenter.contents.count >= count
+  }
+}
+
+@MainActor
+private func waitForCondition(_ condition: () -> Bool) async -> Bool {
   for _ in 0..<20 {
-    if presenter.contents.count >= count {
+    if condition() {
       return true
     }
     await Task.yield()

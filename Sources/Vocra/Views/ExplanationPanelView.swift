@@ -6,10 +6,15 @@ struct ExplanationPanelView: View {
   @Environment(\.colorScheme) private var colorScheme
 
   let capturedText: CapturedText?
-  let markdown: String
+  let document: LearningExplanationDocument?
   let errorMessage: String?
+  let validationErrorMessage: String?
   let onSwitchMode: (ExplanationMode) -> Void
   let onClose: () -> Void
+
+  private var renderedSummary: String {
+    document.map { LearningExplanationSummaryRenderer().render($0) } ?? ""
+  }
 
   var body: some View {
     GlassEffectContainer {
@@ -37,7 +42,15 @@ struct ExplanationPanelView: View {
 
   @ViewBuilder
   private var content: some View {
-    if let errorMessage {
+    if let validationErrorMessage {
+      ScrollView {
+        Text(validationErrorMessage)
+          .foregroundStyle(.orange)
+          .textSelection(.enabled)
+          .frame(maxWidth: .infinity, alignment: .leading)
+      }
+      .frame(minHeight: 320)
+    } else if let errorMessage {
       ScrollView {
         Text(errorMessage)
           .foregroundStyle(.red)
@@ -45,11 +58,11 @@ struct ExplanationPanelView: View {
           .frame(maxWidth: .infinity, alignment: .leading)
       }
       .frame(minHeight: 320)
-    } else if markdown.isEmpty {
+    } else if document == nil {
       ProgressView()
         .frame(maxWidth: .infinity, minHeight: 320)
     } else {
-      MarkdownWebView(markdown: markdown)
+      MarkdownWebView(markdown: renderedSummary)
         .frame(minHeight: 320)
     }
   }
@@ -86,9 +99,9 @@ struct ExplanationPanelView: View {
     HStack {
       Button("Copy") {
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(markdown, forType: .string)
+        NSPasteboard.general.setString(renderedSummary, forType: .string)
       }
-      .disabled(markdown.isEmpty)
+      .disabled(document == nil)
       .buttonStyle(.glass)
 
       Spacer()

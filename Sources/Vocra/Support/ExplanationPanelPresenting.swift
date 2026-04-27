@@ -2,8 +2,9 @@ import VocraCore
 
 struct ExplanationPanelContent: Equatable {
   let capturedText: CapturedText?
-  let markdown: String
+  let document: LearningExplanationDocument?
   let errorMessage: String?
+  let validationErrorMessage: String?
 }
 
 @MainActor

@@ -11,11 +11,13 @@ private let shortcutFlowLogger = Logger(
 @MainActor
 @Observable
 final class AppModel {
-  typealias ExplanationProvider = (CapturedText) async throws -> String
+  typealias ExplanationProvider = (CapturedText) async throws -> LearningExplanationDocument
+  typealias VocabularyCardProvider = (CapturedText) async throws -> LearningExplanationDocument
 
   var latestCapturedText: CapturedText?
-  var latestMarkdown: String = ""
+  var latestDocument: LearningExplanationDocument?
   var latestErrorMessage: String?
+  var latestValidationErrorMessage: String?
   var isShortcutPaused = false
   var currentShortcut: KeyboardShortcut
   var shortcutRegistrationErrorMessage: String?
@@ -23,7 +25,6 @@ final class AppModel {
   var vocabularyRevision = 0
 
   private let classifier: TextClassifier
-  private let promptRenderer: PromptRenderer
   private let promptStore: UserDefaultsPromptStore
   private let settingsStore: UserDefaultsSettingsStore
   private let apiKeyStore: KeychainAPIKeyStore
@@ -33,6 +34,7 @@ final class AppModel {
   private let shortcutService: any ShortcutRegistering
   private let panelPresenter: any ExplanationPanelPresenting
   private let explanationProvider: ExplanationProvider?
+  private let vocabularyCardProvider: VocabularyCardProvider?
   @ObservationIgnored nonisolated(unsafe) private var shortcutChangeObserver: NSObjectProtocol?
   @ObservationIgnored private var activeExplanationRequestID = 0
 
@@ -42,7 +44,6 @@ final class AppModel {
 
   init(
     classifier: TextClassifier = TextClassifier(),
-    promptRenderer: PromptRenderer = PromptRenderer(),
     promptStore: UserDefaultsPromptStore = UserDefaultsPromptStore(),
     settingsStore: UserDefaultsSettingsStore = UserDefaultsSettingsStore(),
     apiKeyStore: KeychainAPIKeyStore = KeychainAPIKeyStore(),
@@ -51,10 +52,10 @@ final class AppModel {
     reviewScheduler: ReviewScheduler = ReviewScheduler(),
     shortcutService: any ShortcutRegistering = ShortcutService(),
     panelPresenter: any ExplanationPanelPresenting = FloatingPanelController(),
-    explanationProvider: ExplanationProvider? = nil
+    explanationProvider: ExplanationProvider? = nil,
+    vocabularyCardProvider: VocabularyCardProvider? = nil
   ) {
     self.classifier = classifier
-    self.promptRenderer = promptRenderer
     self.promptStore = promptStore
     self.settingsStore = settingsStore
     self.apiKeyStore = apiKeyStore
@@ -64,6 +65,7 @@ final class AppModel {
     self.shortcutService = shortcutService
     self.panelPresenter = panelPresenter
     self.explanationProvider = explanationProvider
+    self.vocabularyCardProvider = vocabularyCardProvider
     self.currentShortcut = settingsStore.loadKeyboardShortcut()
     self.shortcutChangeObserver = NotificationCenter.default.addObserver(
       forName: .vocraKeyboardShortcutDidChange,
@@ -123,7 +125,8 @@ final class AppModel {
     shortcutFlowLogger.info("Shortcut handling started.")
     do {
       latestErrorMessage = nil
-      latestMarkdown = ""
+      latestValidationErrorMessage = nil
+      latestDocument = nil
       latestCapturedText = nil
 
       let selectionStart = clock.now
@@ -141,9 +144,9 @@ final class AppModel {
       refreshPanel()
 
       let explanationStart = clock.now
-      let markdown = try await explain(captured)
+      let document = try await explain(captured)
       shortcutFlowLogger.info(
-        "Explanation completed in \(elapsedMilliseconds(from: explanationStart, clock: clock), privacy: .public) ms; mode: \(captured.mode.rawValue, privacy: .public); markdown characters: \(markdown.count, privacy: .public)."
+        "Explanation completed in \(elapsedMilliseconds(from: explanationStart, clock: clock), privacy: .public) ms; mode: \(captured.mode.rawValue, privacy: .public); source characters: \(document.sourceText.count, privacy: .public)."
       )
       guard isCurrentExplanationRequest(requestID) else {
         shortcutFlowLogger.info("Ignoring stale shortcut explanation result.")
@@ -152,10 +155,16 @@ final class AppModel {
 
       if captured.mode == .word || captured.mode == .phrase {
         let vocabularyType: VocabularyType = captured.mode == .word ? .word : .phrase
+        let cardDocument = try await generateVocabularyCard(for: captured)
+        guard isCurrentExplanationRequest(requestID) else {
+          shortcutFlowLogger.info("Ignoring stale shortcut vocabulary card result.")
+          return
+        }
+        let cardJSON = String(data: try JSONEncoder().encode(cardDocument), encoding: .utf8)!
         _ = try vocabularyRepository.upsert(
           text: captured.cleanedText,
           type: vocabularyType,
-          cardMarkdown: markdown,
+          cardJSON: cardJSON,
           sourceApp: captured.sourceApp,
           now: Date()
         )
@@ -163,8 +172,9 @@ final class AppModel {
       }
 
       latestCapturedText = captured
-      latestMarkdown = markdown
+      latestDocument = document
       latestErrorMessage = nil
+      latestValidationErrorMessage = nil
       refreshPanel()
       shortcutFlowLogger.info(
         "Shortcut handling finished in \(elapsedMilliseconds(from: flowStart, clock: clock), privacy: .public) ms."
@@ -175,8 +185,14 @@ final class AppModel {
         return
       }
       latestCapturedText = capturedForError
-      latestMarkdown = ""
-      latestErrorMessage = String(describing: error)
+      latestDocument = nil
+      if let validationError = error as? LearningExplanationValidationError {
+        latestValidationErrorMessage = validationError.description
+        latestErrorMessage = nil
+      } else {
+        latestErrorMessage = String(describing: error)
+        latestValidationErrorMessage = nil
+      }
       refreshPanel()
       shortcutFlowLogger.error(
         "Shortcut handling failed after \(elapsedMilliseconds(from: flowStart, clock: clock), privacy: .public) ms: \(String(describing: error), privacy: .public)"
@@ -189,17 +205,24 @@ final class AppModel {
     let requestID = beginExplanationRequest()
     let adjusted = CapturedText(originalText: current.originalText, cleanedText: current.cleanedText, mode: mode, sourceApp: current.sourceApp)
     do {
-      let markdown = try await explain(adjusted)
+      let document = try await explain(adjusted)
       guard isCurrentExplanationRequest(requestID) else { return }
       latestCapturedText = adjusted
-      latestMarkdown = markdown
+      latestDocument = document
       latestErrorMessage = nil
+      latestValidationErrorMessage = nil
       refreshPanel()
     } catch {
       guard isCurrentExplanationRequest(requestID) else { return }
       latestCapturedText = adjusted
-      latestMarkdown = ""
-      latestErrorMessage = String(describing: error)
+      latestDocument = nil
+      if let validationError = error as? LearningExplanationValidationError {
+        latestValidationErrorMessage = validationError.description
+        latestErrorMessage = nil
+      } else {
+        latestErrorMessage = String(describing: error)
+        latestValidationErrorMessage = nil
+      }
       refreshPanel()
     }
   }
@@ -219,39 +242,48 @@ final class AppModel {
     return (try? vocabularyRepository.allCards()) ?? []
   }
 
-  private func explain(_ captured: CapturedText) async throws -> String {
+  private func explain(_ captured: CapturedText) async throws -> LearningExplanationDocument {
     if let explanationProvider {
       return try await explanationProvider(captured)
     }
 
     let kind: PromptKind = switch captured.mode {
-    case .word: .wordExplanation
-    case .phrase: .phraseExplanation
-    case .sentence: .sentenceExplanation
+    case .word, .phrase: .wordExplanationSchema
+    case .sentence: .sentenceAnalysisSchema
     }
     let template = promptStore.template(for: kind)!
-    let context = PromptContext(
-      text: captured.cleanedText,
-      type: captured.mode,
-      sourceApp: captured.sourceApp,
-      surroundingContext: "",
-      createdAt: ISO8601DateFormatter().string(from: Date())
+    let activeProfile = settingsStore.loadAPIProviderSettings().activeProfile
+    let apiKeyStore = activeProfile.map { KeychainAPIKeyStore(account: $0.keychainAccount) } ?? self.apiKeyStore
+    let service = StructuredExplanationService(
+      aiClient: OpenAICompatibleClient(
+        configuration: activeProfile?.configuration ?? settingsStore.loadAPIConfiguration(),
+        apiKeyProvider: { try apiKeyStore.readAPIKey() }
+      )
     )
-    let prompt = try promptRenderer.render(template, context: context)
+    return try await service.explain(captured: captured, template: template)
+  }
+
+  private func generateVocabularyCard(for captured: CapturedText) async throws -> LearningExplanationDocument {
+    if let vocabularyCardProvider {
+      return try await vocabularyCardProvider(captured)
+    }
+
+    let template = promptStore.template(for: .vocabularyCardSchema)!
     let activeProfile = settingsStore.loadAPIProviderSettings().activeProfile
     let apiKeyStore = activeProfile.map { KeychainAPIKeyStore(account: $0.keychainAccount) } ?? self.apiKeyStore
     let client = OpenAICompatibleClient(
       configuration: activeProfile?.configuration ?? settingsStore.loadAPIConfiguration(),
       apiKeyProvider: { try apiKeyStore.readAPIKey() }
     )
-    return try await client.complete(prompt: prompt)
+    return try await StructuredExplanationService(aiClient: client).vocabularyCard(captured: captured, template: template)
   }
 
   private func refreshPanel() {
     let content = ExplanationPanelContent(
       capturedText: latestCapturedText,
-      markdown: latestMarkdown,
-      errorMessage: latestErrorMessage
+      document: latestDocument,
+      errorMessage: latestErrorMessage,
+      validationErrorMessage: latestValidationErrorMessage
     )
     panelPresenter.show(
       content: content,
