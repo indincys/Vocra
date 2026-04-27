@@ -95,4 +95,21 @@ final class SettingsStoreTests: XCTestCase {
     XCTAssertEqual(store.loadKeyboardShortcut(), shortcut)
     XCTAssertEqual(store.loadKeyboardShortcut().displayString, "⌘⌥C")
   }
+
+  func testUserDefaultsSettingsStorePersistsLearningPreferences() throws {
+    let suiteName = "SettingsStoreTests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let store = UserDefaultsSettingsStore(defaults: defaults)
+    let preferences = LearningPreferences(
+      explanationDepth: .detailed,
+      exampleCount: 3,
+      chineseStyle: .teacherLike,
+      diagramDensity: .full
+    )
+
+    store.saveLearningPreferences(preferences)
+
+    XCTAssertEqual(store.loadLearningPreferences(), preferences)
+  }
 }

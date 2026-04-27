@@ -254,11 +254,13 @@ final class AppModel {
     let template = promptStore.template(for: kind)!
     let activeProfile = settingsStore.loadAPIProviderSettings().activeProfile
     let apiKeyStore = activeProfile.map { KeychainAPIKeyStore(account: $0.keychainAccount) } ?? self.apiKeyStore
+    let client = OpenAICompatibleClient(
+      configuration: activeProfile?.configuration ?? settingsStore.loadAPIConfiguration(),
+      apiKeyProvider: { try apiKeyStore.readAPIKey() }
+    )
     let service = StructuredExplanationService(
-      aiClient: OpenAICompatibleClient(
-        configuration: activeProfile?.configuration ?? settingsStore.loadAPIConfiguration(),
-        apiKeyProvider: { try apiKeyStore.readAPIKey() }
-      )
+      aiClient: client,
+      preferences: settingsStore.loadLearningPreferences()
     )
     return try await service.explain(captured: captured, template: template)
   }
@@ -275,7 +277,11 @@ final class AppModel {
       configuration: activeProfile?.configuration ?? settingsStore.loadAPIConfiguration(),
       apiKeyProvider: { try apiKeyStore.readAPIKey() }
     )
-    return try await StructuredExplanationService(aiClient: client).vocabularyCard(captured: captured, template: template)
+    let service = StructuredExplanationService(
+      aiClient: client,
+      preferences: settingsStore.loadLearningPreferences()
+    )
+    return try await service.vocabularyCard(captured: captured, template: template)
   }
 
   private func refreshPanel() {

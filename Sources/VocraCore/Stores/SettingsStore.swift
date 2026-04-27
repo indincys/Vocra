@@ -7,6 +7,8 @@ public protocol SettingsStore: Sendable {
   func saveAPIProviderSettings(_ settings: APIProviderSettings)
   func loadKeyboardShortcut() -> KeyboardShortcut
   func saveKeyboardShortcut(_ shortcut: KeyboardShortcut)
+  func loadLearningPreferences() -> LearningPreferences
+  func saveLearningPreferences(_ preferences: LearningPreferences)
 }
 
 public final class UserDefaultsSettingsStore: SettingsStore, @unchecked Sendable {
@@ -14,6 +16,7 @@ public final class UserDefaultsSettingsStore: SettingsStore, @unchecked Sendable
   private let apiConfigurationKey = "apiConfiguration"
   private let apiProviderSettingsKey = "apiProviderSettings"
   private let keyboardShortcutKey = "keyboardShortcut"
+  private let learningPreferencesKey = "learningPreferences"
 
   public init(defaults: UserDefaults = .standard) {
     self.defaults = defaults
@@ -77,6 +80,21 @@ public final class UserDefaultsSettingsStore: SettingsStore, @unchecked Sendable
   public func saveKeyboardShortcut(_ shortcut: KeyboardShortcut) {
     guard shortcut.isValid, let data = try? JSONEncoder().encode(shortcut) else { return }
     defaults.set(data, forKey: keyboardShortcutKey)
+  }
+
+  public func loadLearningPreferences() -> LearningPreferences {
+    guard
+      let data = defaults.data(forKey: learningPreferencesKey),
+      let preferences = try? JSONDecoder().decode(LearningPreferences.self, from: data)
+    else {
+      return .default
+    }
+    return preferences
+  }
+
+  public func saveLearningPreferences(_ preferences: LearningPreferences) {
+    guard let data = try? JSONEncoder().encode(preferences) else { return }
+    defaults.set(data, forKey: learningPreferencesKey)
   }
 
   private func loadLegacyAPIConfiguration() -> APIConfiguration {

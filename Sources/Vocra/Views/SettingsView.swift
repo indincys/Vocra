@@ -75,6 +75,28 @@ private struct APIProfileForm: Identifiable, Equatable {
   }
 }
 
+struct SettingsSchemaPromptEditor: Equatable {
+  let title: String
+  let kind: PromptKind
+}
+
+enum SettingsSchemaPromptEditors {
+  static let sentence = SettingsSchemaPromptEditor(
+    title: "Sentence Analysis Schema",
+    kind: .sentenceAnalysisSchema
+  )
+  static let word = SettingsSchemaPromptEditor(
+    title: "Word and Term Explanation Schema",
+    kind: .wordExplanationSchema
+  )
+  static let card = SettingsSchemaPromptEditor(
+    title: "Vocabulary Card Schema",
+    kind: .vocabularyCardSchema
+  )
+
+  static let all = [sentence, word, card]
+}
+
 struct SettingsView: View {
   private let settingsStore = UserDefaultsSettingsStore()
   private let promptStore = UserDefaultsPromptStore()
@@ -86,9 +108,12 @@ struct SettingsView: View {
   @State private var testStatusByProfileID: [UUID: APIConnectionTestStatus] = [:]
   @State private var isTestingAPI = false
   @State private var wordPrompt = ""
-  @State private var phrasePrompt = ""
   @State private var sentencePrompt = ""
   @State private var cardPrompt = ""
+  @State private var explanationDepth = LearningPreferences.ExplanationDepth.detailed
+  @State private var exampleCount = 2
+  @State private var chineseStyle = LearningPreferences.ChineseStyle.teacherLike
+  @State private var diagramDensity = LearningPreferences.DiagramDensity.full
   @State private var keyboardShortcut = VocraCore.KeyboardShortcut.defaultShortcut
   @State private var isRecordingShortcut = false
   @State private var statusMessage = ""
@@ -100,12 +125,30 @@ struct SettingsView: View {
     Form {
       apiSection
 
-      Section("Prompts") {
-        promptEditor("Word Explanation", text: $wordPrompt)
-        promptEditor("Term Explanation", text: $phrasePrompt)
-        promptEditor("Sentence Explanation", text: $sentencePrompt)
-        promptEditor("Vocabulary Card", text: $cardPrompt)
-        Button("Save Prompts", action: savePrompts)
+      Section("Learning") {
+        Picker("Explanation Depth", selection: $explanationDepth) {
+          Text("Standard").tag(LearningPreferences.ExplanationDepth.standard)
+          Text("Detailed").tag(LearningPreferences.ExplanationDepth.detailed)
+        }
+        Stepper("Examples: \(exampleCount)", value: $exampleCount, in: 1...3)
+        Picker("Chinese Style", selection: $chineseStyle) {
+          Text("Concise").tag(LearningPreferences.ChineseStyle.concise)
+          Text("Teacher-like").tag(LearningPreferences.ChineseStyle.teacherLike)
+        }
+        Picker("Diagram Density", selection: $diagramDensity) {
+          Text("Simple").tag(LearningPreferences.DiagramDensity.simple)
+          Text("Full").tag(LearningPreferences.DiagramDensity.full)
+        }
+        Button("Save Learning Settings", action: saveLearningSettings)
+      }
+
+      Section("Advanced Schema Prompts") {
+        Text("Schema prompts must return the required JSON shape. Invalid output will be rejected.")
+          .foregroundStyle(.secondary)
+        promptEditor(SettingsSchemaPromptEditors.sentence.title, text: $sentencePrompt)
+        promptEditor(SettingsSchemaPromptEditors.word.title, text: $wordPrompt)
+        promptEditor(SettingsSchemaPromptEditors.card.title, text: $cardPrompt)
+        Button("Save Schema Prompts", action: savePrompts)
       }
 
       Section("Shortcut") {
@@ -245,10 +288,14 @@ struct SettingsView: View {
     activeProfileID = providerSettings.activeProfileID
     expandedProfileIDs = [providerSettings.activeProfileID]
     testStatusByProfileID = [:]
-    wordPrompt = promptStore.template(for: .wordExplanation)?.body ?? ""
-    phrasePrompt = promptStore.template(for: .phraseExplanation)?.body ?? ""
-    sentencePrompt = promptStore.template(for: .sentenceExplanation)?.body ?? ""
-    cardPrompt = promptStore.template(for: .vocabularyCard)?.body ?? ""
+    let learningPreferences = settingsStore.loadLearningPreferences()
+    explanationDepth = learningPreferences.explanationDepth
+    exampleCount = learningPreferences.exampleCount
+    chineseStyle = learningPreferences.chineseStyle
+    diagramDensity = learningPreferences.diagramDensity
+    wordPrompt = promptStore.template(for: SettingsSchemaPromptEditors.word.kind)?.body ?? ""
+    sentencePrompt = promptStore.template(for: SettingsSchemaPromptEditors.sentence.kind)?.body ?? ""
+    cardPrompt = promptStore.template(for: SettingsSchemaPromptEditors.card.kind)?.body ?? ""
     keyboardShortcut = settingsStore.loadKeyboardShortcut()
   }
 
@@ -314,11 +361,20 @@ struct SettingsView: View {
   }
 
   private func savePrompts() {
-    promptStore.save(PromptTemplate(kind: .wordExplanation, body: wordPrompt))
-    promptStore.save(PromptTemplate(kind: .phraseExplanation, body: phrasePrompt))
-    promptStore.save(PromptTemplate(kind: .sentenceExplanation, body: sentencePrompt))
-    promptStore.save(PromptTemplate(kind: .vocabularyCard, body: cardPrompt))
-    statusMessage = "Prompts saved."
+    promptStore.save(PromptTemplate(kind: SettingsSchemaPromptEditors.sentence.kind, body: sentencePrompt))
+    promptStore.save(PromptTemplate(kind: SettingsSchemaPromptEditors.word.kind, body: wordPrompt))
+    promptStore.save(PromptTemplate(kind: SettingsSchemaPromptEditors.card.kind, body: cardPrompt))
+    statusMessage = "Schema prompts saved."
+  }
+
+  private func saveLearningSettings() {
+    settingsStore.saveLearningPreferences(LearningPreferences(
+      explanationDepth: explanationDepth,
+      exampleCount: exampleCount,
+      chineseStyle: chineseStyle,
+      diagramDensity: diagramDensity
+    ))
+    statusMessage = "Learning settings saved."
   }
 
   private func saveKeyboardShortcut() {
