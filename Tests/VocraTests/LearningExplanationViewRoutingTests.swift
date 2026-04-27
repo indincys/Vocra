@@ -82,7 +82,8 @@ private func sentenceDocument() -> LearningExplanationDocument {
       ),
       translation: TranslationBlock(title: "Translation", text: "她学习，因为她想进步。"),
       keyVocabulary: [
-        KeyVocabularyItem(term: "improve", meaning: "变得更好", note: "Used for progress or skill growth.")
+        KeyVocabularyItem(term: "improve", meaning: "变得更好", note: "Used for progress or skill growth."),
+        KeyVocabularyItem(term: "improve", meaning: "提高", note: "Duplicate term from model output.")
       ]
     ),
     wordExplanation: nil,
@@ -107,7 +108,8 @@ private func wordDocument() -> LearningExplanationDocument {
       usageNotes: ["Often followed by a skill or result."],
       collocations: ["improve quickly", "improve your English"],
       examples: [
-        LearningExample(sentence: "Her writing improved.", translation: "她的写作进步了。", note: "Intransitive use.")
+        LearningExample(sentence: "Her writing improved.", translation: "她的写作进步了。", note: "Intransitive use."),
+        LearningExample(sentence: "Her writing improved.", translation: "她的写作提高了。", note: "Duplicate sentence from model output.")
       ],
       commonMistakes: ["Do not say 'improve better'."]
     ),
@@ -132,7 +134,8 @@ private func vocabularyCardDocument() -> LearningExplanationDocument {
         usage: "Used when discussing how much text a model can consider."
       ),
       examples: [
-        VocabularyCardExample(sentence: "The model has a larger context window.", translation: "这个模型有更大的上下文窗口。")
+        VocabularyCardExample(sentence: "The model has a larger context window.", translation: "这个模型有更大的上下文窗口。"),
+        VocabularyCardExample(sentence: "The model has a larger context window.", translation: "该模型的上下文窗口更大。")
       ],
       reviewPrompts: ["What does context window mean?"]
     ),

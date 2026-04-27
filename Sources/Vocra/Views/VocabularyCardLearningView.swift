@@ -44,7 +44,7 @@ struct VocabularyCardLearningView: View {
     if !card.examples.isEmpty {
       LearningSection(title: "Examples", systemImage: "quote.bubble") {
         VStack(alignment: .leading, spacing: 10) {
-          ForEach(card.examples) { example in
+          ForEach(Array(card.examples.enumerated()), id: \.offset) { _, example in
             VStack(alignment: .leading, spacing: 4) {
               Text(example.sentence)
                 .font(.callout.weight(.medium))

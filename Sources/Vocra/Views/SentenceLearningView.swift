@@ -118,7 +118,7 @@ struct SentenceLearningView: View {
     if !analysis.keyVocabulary.isEmpty {
       LearningSection(title: "Key Vocabulary", systemImage: "text.book.closed") {
         VStack(alignment: .leading, spacing: 10) {
-          ForEach(analysis.keyVocabulary) { item in
+          ForEach(Array(analysis.keyVocabulary.enumerated()), id: \.offset) { index, item in
             VStack(alignment: .leading, spacing: 3) {
               Text(item.term)
                 .font(.callout.weight(.semibold))
@@ -132,7 +132,7 @@ struct SentenceLearningView: View {
             }
             .textSelection(.enabled)
 
-            if item.id != analysis.keyVocabulary.last?.id {
+            if index < analysis.keyVocabulary.count - 1 {
               Divider().opacity(0.35)
             }
           }
