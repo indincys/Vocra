@@ -83,15 +83,28 @@ public struct LearningExplanationValidator: Sendable {
   private func validateSentenceAnalysis(_ analysis: SentenceAnalysis) throws {
     try requireText(analysis.headline.title, field: "sentenceAnalysis.headline.title")
     try requireText(analysis.sentence.text, field: "sentenceAnalysis.sentence.text")
+    try requireText(analysis.structureBreakdown.title, field: "sentenceAnalysis.structureBreakdown.title")
     try requireUniqueIDs(analysis.sentence.segments.map(\.id), scope: "sentence.segments")
     try requireUniqueIDs(analysis.relationshipDiagram.nodes.map(\.id), scope: "relationshipDiagram.nodes")
-    try validateStructureItems(analysis.structureBreakdown.items, scope: "structureBreakdown.items")
+    for node in analysis.relationshipDiagram.nodes {
+      try requireText(node.title, field: "sentenceAnalysis.relationshipDiagram.nodes.\(node.id).title")
+      try requireText(node.text, field: "sentenceAnalysis.relationshipDiagram.nodes.\(node.id).text")
+    }
+    var structureItemIDs: Set<String> = []
+    try validateStructureItems(analysis.structureBreakdown.items, scope: "structureBreakdown.items", seen: &structureItemIDs)
+    try requireText(analysis.logicSummary.title, field: "sentenceAnalysis.logicSummary.title")
+    try requireText(analysis.translation.title, field: "sentenceAnalysis.translation.title")
+    try requireText(analysis.translation.text, field: "sentenceAnalysis.translation.text")
   }
 
-  private func validateStructureItems(_ items: [StructureItem], scope: String) throws {
-    try requireUniqueIDs(items.map(\.id), scope: scope)
+  private func validateStructureItems(_ items: [StructureItem], scope: String, seen: inout Set<String>) throws {
     for item in items {
-      try validateStructureItems(item.children, scope: "\(scope).\(item.id).children")
+      try requireText(item.id, field: "\(scope).id")
+      if seen.contains(item.id) {
+        throw LearningExplanationValidationError.duplicateID(scope, item.id)
+      }
+      seen.insert(item.id)
+      try validateStructureItems(item.children, scope: scope, seen: &seen)
     }
   }
 

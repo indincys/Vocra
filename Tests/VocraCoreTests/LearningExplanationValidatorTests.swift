@@ -31,6 +31,84 @@ final class LearningExplanationValidatorTests: XCTestCase {
     }
   }
 
+  func testRejectsMissingSentenceRequiredTextFields() throws {
+    let cases: [(String, (inout LearningExplanationDocument) -> Void)] = [
+      ("sentenceAnalysis.structureBreakdown.title", { $0.sentenceAnalysis?.structureBreakdown.title = " " }),
+      ("sentenceAnalysis.relationshipDiagram.nodes.node1.title", {
+        $0.sentenceAnalysis?.relationshipDiagram.nodes = [
+          RelationshipNode(id: "node1", title: "", text: "Codex")
+        ]
+      }),
+      ("sentenceAnalysis.relationshipDiagram.nodes.node1.text", {
+        $0.sentenceAnalysis?.relationshipDiagram.nodes = [
+          RelationshipNode(id: "node1", title: "Subject", text: "\n")
+        ]
+      }),
+      ("sentenceAnalysis.logicSummary.title", { $0.sentenceAnalysis?.logicSummary.title = "" }),
+      ("sentenceAnalysis.translation.title", { $0.sentenceAnalysis?.translation.title = "" }),
+      ("sentenceAnalysis.translation.text", { $0.sentenceAnalysis?.translation.text = " " })
+    ]
+
+    for (field, mutate) in cases {
+      var document = validSentenceDocument()
+      mutate(&document)
+
+      XCTAssertThrowsError(try LearningExplanationValidator().validate(document, expectedMode: .sentence, expectedSourceText: "Codex works best."), field) { error in
+        XCTAssertEqual(error as? LearningExplanationValidationError, .emptyRequiredField(field))
+      }
+    }
+  }
+
+  func testRejectsDuplicateStructureItemIDAcrossAncestorAndChild() throws {
+    var document = validSentenceDocument()
+    document.sentenceAnalysis?.structureBreakdown.items = [
+      StructureItem(
+        id: "dup",
+        text: "Codex works best.",
+        role: "sentence",
+        labelZh: "句子",
+        labelEn: "Sentence",
+        children: [
+          StructureItem(id: "dup", text: "Codex", role: "subject", labelZh: "主语", labelEn: "Subject", children: [])
+        ]
+      )
+    ]
+
+    XCTAssertThrowsError(try LearningExplanationValidator().validate(document, expectedMode: .sentence, expectedSourceText: "Codex works best.")) { error in
+      XCTAssertEqual(error as? LearningExplanationValidationError, .duplicateID("structureBreakdown.items", "dup"))
+    }
+  }
+
+  func testRejectsDuplicateStructureItemIDAcrossBranches() throws {
+    var document = validSentenceDocument()
+    document.sentenceAnalysis?.structureBreakdown.items = [
+      StructureItem(
+        id: "first",
+        text: "Codex",
+        role: "subject",
+        labelZh: "主语",
+        labelEn: "Subject",
+        children: [
+          StructureItem(id: "shared", text: "Codex", role: "noun", labelZh: "名词", labelEn: "Noun", children: [])
+        ]
+      ),
+      StructureItem(
+        id: "second",
+        text: "works best",
+        role: "predicate",
+        labelZh: "谓语",
+        labelEn: "Predicate",
+        children: [
+          StructureItem(id: "shared", text: "best", role: "adverb", labelZh: "副词", labelEn: "Adverb", children: [])
+        ]
+      )
+    ]
+
+    XCTAssertThrowsError(try LearningExplanationValidator().validate(document, expectedMode: .sentence, expectedSourceText: "Codex works best.")) { error in
+      XCTAssertEqual(error as? LearningExplanationValidationError, .duplicateID("structureBreakdown.items", "shared"))
+    }
+  }
+
   func testAcceptsWhitespaceNormalizedSourceText() throws {
     let document = validSentenceDocument()
 
