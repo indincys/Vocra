@@ -24,8 +24,6 @@ public struct VocabularyCard: Identifiable, Codable, Equatable, Sendable {
   public var text: String
   public var type: VocabularyType
   public var cardJSON: String
-  @available(*, deprecated, message: "Use cardJSON until Task 6 updates AppModel and ReviewView.")
-  public var cardMarkdown: String { cardJSON }
   public var sourceApp: String?
   public var createdAt: Date
   public var updatedAt: Date

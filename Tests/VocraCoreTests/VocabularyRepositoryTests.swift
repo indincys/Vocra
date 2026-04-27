@@ -17,18 +17,6 @@ final class VocabularyRepositoryTests: XCTestCase {
     XCTAssertEqual(try repository.allCards().first?.cardJSON, cardJSON)
   }
 
-  func testDeprecatedMarkdownBridgeStoresDecodableVocabularyCardJSON() throws {
-    let repository = try SQLiteVocabularyRepository.inMemory()
-    let now = Date(timeIntervalSince1970: 1_800_000_000)
-
-    _ = try repository.upsert(text: " legacy term ", type: .word, cardMarkdown: "# Legacy", sourceApp: nil, now: now)
-
-    let card = try XCTUnwrap(repository.allCards().first)
-    let document = try JSONDecoder().decode(LearningExplanationDocument.self, from: Data(card.cardJSON.utf8))
-    XCTAssertNotNil(document.vocabularyCard)
-    XCTAssertEqual(document.vocabularyCard?.back.coreMeaning, "# Legacy")
-  }
-
   func testDueCardsExcludeMasteredCards() throws {
     let repository = try SQLiteVocabularyRepository.inMemory()
     let now = Date(timeIntervalSince1970: 1_800_000_000)
@@ -39,7 +27,7 @@ final class VocabularyRepositoryTests: XCTestCase {
     XCTAssertTrue(try repository.dueCards(now: now).isEmpty)
   }
 
-  func testMigrationFromVersionOneDropsLegacyMarkdownTable() throws {
+  func testMigrationFromVersionOneDropsLegacyTable() throws {
     let fileURL = FileManager.default.temporaryDirectory
       .appendingPathComponent("VocabularyRepositoryTests-\(UUID().uuidString).sqlite")
     defer { try? FileManager.default.removeItem(at: fileURL) }
@@ -64,7 +52,7 @@ final class VocabularyRepositoryTests: XCTestCase {
       normalizedText TEXT UNIQUE NOT NULL,
       text TEXT NOT NULL,
       type TEXT NOT NULL,
-      cardMarkdown TEXT NOT NULL,
+      legacyCardText TEXT NOT NULL,
       sourceApp TEXT,
       createdAt REAL NOT NULL,
       updatedAt REAL NOT NULL,
@@ -75,7 +63,7 @@ final class VocabularyRepositoryTests: XCTestCase {
       familiarityLevel INTEGER NOT NULL
     );
     INSERT INTO vocabulary_cards
-    (id, normalizedText, text, type, cardMarkdown, sourceApp, createdAt, updatedAt, lastReviewedAt, nextReviewAt, reviewCount, status, familiarityLevel)
+    (id, normalizedText, text, type, legacyCardText, sourceApp, createdAt, updatedAt, lastReviewedAt, nextReviewAt, reviewCount, status, familiarityLevel)
     VALUES ('00000000-0000-0000-0000-000000000001', 'legacy', 'legacy', 'word', '# Legacy', NULL, 1, 1, NULL, 1, 0, 'new', 0);
     PRAGMA user_version = 1;
     """
