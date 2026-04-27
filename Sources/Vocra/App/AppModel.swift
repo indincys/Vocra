@@ -34,6 +34,7 @@ final class AppModel {
   private let panelPresenter: any ExplanationPanelPresenting
   private let explanationProvider: ExplanationProvider?
   @ObservationIgnored nonisolated(unsafe) private var shortcutChangeObserver: NSObjectProtocol?
+  @ObservationIgnored private var activeExplanationRequestID = 0
 
   convenience init() {
     self.init(vocabularyRepository: try! SQLiteVocabularyRepository(path: AppModel.databasePath()))
@@ -115,6 +116,7 @@ final class AppModel {
       return
     }
 
+    let requestID = beginExplanationRequest()
     let clock = ContinuousClock()
     let flowStart = clock.now
     var capturedForError: CapturedText?
@@ -130,6 +132,10 @@ final class AppModel {
         "Selection read in \(elapsedMilliseconds(from: selectionStart, clock: clock), privacy: .public) ms; characters: \(selection.text.count, privacy: .public); source: \(selection.sourceApp ?? "Unknown App", privacy: .public)."
       )
       let captured = classifier.classify(selection.text, sourceApp: selection.sourceApp)
+      guard isCurrentExplanationRequest(requestID) else {
+        shortcutFlowLogger.info("Ignoring stale shortcut selection result.")
+        return
+      }
       capturedForError = captured
       latestCapturedText = captured
       refreshPanel()
@@ -139,6 +145,10 @@ final class AppModel {
       shortcutFlowLogger.info(
         "Explanation completed in \(elapsedMilliseconds(from: explanationStart, clock: clock), privacy: .public) ms; mode: \(captured.mode.rawValue, privacy: .public); markdown characters: \(markdown.count, privacy: .public)."
       )
+      guard isCurrentExplanationRequest(requestID) else {
+        shortcutFlowLogger.info("Ignoring stale shortcut explanation result.")
+        return
+      }
 
       if captured.mode == .word || captured.mode == .phrase {
         let vocabularyType: VocabularyType = captured.mode == .word ? .word : .phrase
@@ -160,6 +170,10 @@ final class AppModel {
         "Shortcut handling finished in \(elapsedMilliseconds(from: flowStart, clock: clock), privacy: .public) ms."
       )
     } catch {
+      guard isCurrentExplanationRequest(requestID) else {
+        shortcutFlowLogger.info("Ignoring stale shortcut error result.")
+        return
+      }
       latestCapturedText = capturedForError
       latestMarkdown = ""
       latestErrorMessage = String(describing: error)
@@ -172,14 +186,17 @@ final class AppModel {
 
   func explainWithMode(_ mode: ExplanationMode) async {
     guard let current = latestCapturedText else { return }
+    let requestID = beginExplanationRequest()
     let adjusted = CapturedText(originalText: current.originalText, cleanedText: current.cleanedText, mode: mode, sourceApp: current.sourceApp)
     do {
       let markdown = try await explain(adjusted)
+      guard isCurrentExplanationRequest(requestID) else { return }
       latestCapturedText = adjusted
       latestMarkdown = markdown
       latestErrorMessage = nil
       refreshPanel()
     } catch {
+      guard isCurrentExplanationRequest(requestID) else { return }
       latestCapturedText = adjusted
       latestMarkdown = ""
       latestErrorMessage = String(describing: error)
@@ -247,6 +264,15 @@ final class AppModel {
         self?.panelPresenter.close()
       }
     )
+  }
+
+  private func beginExplanationRequest() -> Int {
+    activeExplanationRequestID += 1
+    return activeExplanationRequestID
+  }
+
+  private func isCurrentExplanationRequest(_ requestID: Int) -> Bool {
+    requestID == activeExplanationRequestID
   }
 
   private static func databasePath() -> String {

@@ -65,6 +65,54 @@ final class AppModelTests: XCTestCase {
     XCTAssertNil(panelPresenter.contents.last?.errorMessage)
   }
 
+  func testLatestShortcutResultWinsWhenExplanationsCompleteOutOfOrder() async throws {
+    let panelPresenter = RecordingPanelPresenter()
+    let selectionReader = SequencedSelectionReader(selections: [
+      CapturedTextSelection(text: "ambitious", sourceApp: "Tests"),
+      CapturedTextSelection(text: "bullet", sourceApp: "Tests")
+    ])
+    let firstExplanationGate = AsyncGate()
+    let secondExplanationGate = AsyncGate()
+    let model = try AppModel(
+      selectionReader: selectionReader,
+      vocabularyRepository: .inMemory(),
+      panelPresenter: panelPresenter,
+      explanationProvider: { captured in
+        switch captured.cleanedText {
+        case "ambitious":
+          await firstExplanationGate.wait()
+          return "# ambitious\n\nOld result"
+        case "bullet":
+          await secondExplanationGate.wait()
+          return "# bullet\n\nLatest result"
+        default:
+          return "# \(captured.cleanedText)"
+        }
+      }
+    )
+
+    let firstTask = Task { await model.handleShortcut() }
+    let didShowFirstLoadingPanel = await waitForPanelContents(panelPresenter, count: 1)
+    XCTAssertTrue(didShowFirstLoadingPanel)
+    XCTAssertEqual(panelPresenter.contents.last?.capturedText?.cleanedText, "ambitious")
+
+    let secondTask = Task { await model.handleShortcut() }
+    let didShowSecondLoadingPanel = await waitForPanelContents(panelPresenter, count: 2)
+    XCTAssertTrue(didShowSecondLoadingPanel)
+    XCTAssertEqual(panelPresenter.contents.last?.capturedText?.cleanedText, "bullet")
+
+    secondExplanationGate.open()
+    await secondTask.value
+    XCTAssertEqual(panelPresenter.contents.last?.capturedText?.cleanedText, "bullet")
+    XCTAssertEqual(panelPresenter.contents.last?.markdown, "# bullet\n\nLatest result")
+
+    firstExplanationGate.open()
+    await firstTask.value
+
+    XCTAssertEqual(panelPresenter.contents.last?.capturedText?.cleanedText, "bullet")
+    XCTAssertEqual(panelPresenter.contents.last?.markdown, "# bullet\n\nLatest result")
+  }
+
   func testShortcutPresentsSingleErrorPanelWhenExplanationFails() async throws {
     let panelPresenter = RecordingPanelPresenter()
     let model = try AppModel(
@@ -118,6 +166,18 @@ private final class BlockingSelectionReader: SelectionReader, @unchecked Sendabl
 
   func release() {
     gate.open()
+  }
+}
+
+private actor SequencedSelectionReader: SelectionReader {
+  private var selections: [CapturedTextSelection]
+
+  init(selections: [CapturedTextSelection]) {
+    self.selections = selections
+  }
+
+  func readSelection() async throws -> CapturedTextSelection {
+    return selections.removeFirst()
   }
 }
 
