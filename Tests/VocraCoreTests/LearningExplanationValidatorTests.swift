@@ -19,6 +19,62 @@ final class LearningExplanationValidatorTests: XCTestCase {
     }
   }
 
+  func testRejectsBlankWordExplanationUserFacingFields() throws {
+    let cases: [(String, (inout LearningExplanationDocument) -> Void)] = [
+      ("wordExplanation.partOfSpeech", { $0.wordExplanation?.partOfSpeech = " " }),
+      ("wordExplanation.contextualMeaning", { $0.wordExplanation?.contextualMeaning = "" }),
+      ("wordExplanation.examples[0].sentence", {
+        $0.wordExplanation?.examples = [
+          LearningExample(sentence: "\n", translation: "上下文窗口很大。", note: nil)
+        ]
+      }),
+      ("wordExplanation.examples[0].translation", {
+        $0.wordExplanation?.examples = [
+          LearningExample(sentence: "The context window is large.", translation: "", note: nil)
+        ]
+      }),
+      ("wordExplanation.usageNotes[0]", { $0.wordExplanation?.usageNotes = [" "] }),
+      ("wordExplanation.collocations[0]", { $0.wordExplanation?.collocations = [""] }),
+      ("wordExplanation.commonMistakes[0]", { $0.wordExplanation?.commonMistakes = ["\n"] })
+    ]
+
+    for (field, mutate) in cases {
+      var document = validWordDocument()
+      mutate(&document)
+
+      XCTAssertThrowsError(try LearningExplanationValidator().validate(document, expectedMode: .word, expectedSourceText: "context window"), field) { error in
+        XCTAssertEqual(error as? LearningExplanationValidationError, .emptyRequiredField(field))
+      }
+    }
+  }
+
+  func testRejectsBlankVocabularyCardUserFacingFields() throws {
+    let cases: [(String, (inout LearningExplanationDocument) -> Void)] = [
+      ("vocabularyCard.back.memoryNote", { $0.vocabularyCard?.back.memoryNote = " " }),
+      ("vocabularyCard.back.usage", { $0.vocabularyCard?.back.usage = "" }),
+      ("vocabularyCard.examples[0].sentence", {
+        $0.vocabularyCard?.examples = [
+          VocabularyCardExample(sentence: "\n", translation: "上下文窗口很大。")
+        ]
+      }),
+      ("vocabularyCard.examples[0].translation", {
+        $0.vocabularyCard?.examples = [
+          VocabularyCardExample(sentence: "The context window is large.", translation: "")
+        ]
+      }),
+      ("vocabularyCard.reviewPrompts[0]", { $0.vocabularyCard?.reviewPrompts = [" "] })
+    ]
+
+    for (field, mutate) in cases {
+      var document = validVocabularyCardDocument()
+      mutate(&document)
+
+      XCTAssertThrowsError(try LearningExplanationValidator().validateVocabularyCard(document, expectedMode: .word, expectedSourceText: "context window"), field) { error in
+        XCTAssertEqual(error as? LearningExplanationValidationError, .emptyRequiredField(field))
+      }
+    }
+  }
+
   func testRejectsDuplicateSegmentIDs() throws {
     var document = validSentenceDocument()
     document.sentenceAnalysis?.sentence.segments = [
@@ -121,6 +177,86 @@ final class LearningExplanationValidatorTests: XCTestCase {
     }
   }
 
+  func testRejectsInvalidRelationshipEdges() throws {
+    let cases: [(LearningExplanationValidationError, (inout LearningExplanationDocument) -> Void)] = [
+      (.emptyRequiredField("sentenceAnalysis.relationshipDiagram.edges[0].from"), {
+        $0.sentenceAnalysis?.relationshipDiagram = RelationshipDiagram(
+          nodes: [
+            RelationshipNode(id: "subject", title: "Subject", text: "Codex"),
+            RelationshipNode(id: "predicate", title: "Predicate", text: "works best")
+          ],
+          edges: [
+            RelationshipEdge(from: " ", to: "predicate", labelZh: "说明", labelEn: "describes")
+          ]
+        )
+      }),
+      (.emptyRequiredField("sentenceAnalysis.relationshipDiagram.edges[0].to"), {
+        $0.sentenceAnalysis?.relationshipDiagram = RelationshipDiagram(
+          nodes: [
+            RelationshipNode(id: "subject", title: "Subject", text: "Codex"),
+            RelationshipNode(id: "predicate", title: "Predicate", text: "works best")
+          ],
+          edges: [
+            RelationshipEdge(from: "subject", to: "", labelZh: "说明", labelEn: "describes")
+          ]
+        )
+      }),
+      (.emptyRequiredField("sentenceAnalysis.relationshipDiagram.edges[0].labelZh"), {
+        $0.sentenceAnalysis?.relationshipDiagram = RelationshipDiagram(
+          nodes: [
+            RelationshipNode(id: "subject", title: "Subject", text: "Codex"),
+            RelationshipNode(id: "predicate", title: "Predicate", text: "works best")
+          ],
+          edges: [
+            RelationshipEdge(from: "subject", to: "predicate", labelZh: "\n", labelEn: "describes")
+          ]
+        )
+      }),
+      (.emptyRequiredField("sentenceAnalysis.relationshipDiagram.edges[0].labelEn"), {
+        $0.sentenceAnalysis?.relationshipDiagram = RelationshipDiagram(
+          nodes: [
+            RelationshipNode(id: "subject", title: "Subject", text: "Codex"),
+            RelationshipNode(id: "predicate", title: "Predicate", text: "works best")
+          ],
+          edges: [
+            RelationshipEdge(from: "subject", to: "predicate", labelZh: "说明", labelEn: " ")
+          ]
+        )
+      }),
+      (.unknownRelationshipNodeReference(field: "sentenceAnalysis.relationshipDiagram.edges[0].from", id: "missing"), {
+        $0.sentenceAnalysis?.relationshipDiagram = RelationshipDiagram(
+          nodes: [
+            RelationshipNode(id: "subject", title: "Subject", text: "Codex"),
+            RelationshipNode(id: "predicate", title: "Predicate", text: "works best")
+          ],
+          edges: [
+            RelationshipEdge(from: "missing", to: "predicate", labelZh: "说明", labelEn: "describes")
+          ]
+        )
+      }),
+      (.unknownRelationshipNodeReference(field: "sentenceAnalysis.relationshipDiagram.edges[0].to", id: "missing"), {
+        $0.sentenceAnalysis?.relationshipDiagram = RelationshipDiagram(
+          nodes: [
+            RelationshipNode(id: "subject", title: "Subject", text: "Codex"),
+            RelationshipNode(id: "predicate", title: "Predicate", text: "works best")
+          ],
+          edges: [
+            RelationshipEdge(from: "subject", to: "missing", labelZh: "说明", labelEn: "describes")
+          ]
+        )
+      })
+    ]
+
+    for (expectedError, mutate) in cases {
+      var document = validSentenceDocument()
+      mutate(&document)
+
+      XCTAssertThrowsError(try LearningExplanationValidator().validate(document, expectedMode: .sentence, expectedSourceText: "Codex works best."), "\(expectedError)") { error in
+        XCTAssertEqual(error as? LearningExplanationValidationError, expectedError)
+      }
+    }
+  }
+
   func testRejectsEmptyStructureItemText() throws {
     let cases: [(String, [StructureItem])] = [
       (
@@ -184,6 +320,51 @@ final class LearningExplanationValidatorTests: XCTestCase {
       ),
       wordExplanation: nil,
       vocabularyCard: nil,
+      warnings: []
+    )
+  }
+
+  private func validWordDocument() -> LearningExplanationDocument {
+    LearningExplanationDocument(
+      schemaVersion: 1,
+      mode: .word,
+      sourceText: "context window",
+      language: LearningExplanationLanguage(source: "en", explanation: "zh-Hans"),
+      sentenceAnalysis: nil,
+      wordExplanation: WordExplanation(
+        term: "context window",
+        pronunciation: nil,
+        partOfSpeech: "noun phrase",
+        coreMeaning: "上下文窗口",
+        contextualMeaning: "模型一次能参考的文本范围",
+        usageNotes: ["常用于大模型产品。"],
+        collocations: ["large context window"],
+        examples: [
+          LearningExample(sentence: "The context window is large.", translation: "上下文窗口很大。", note: nil)
+        ],
+        commonMistakes: ["不要写成 content window。"]
+      ),
+      vocabularyCard: nil,
+      warnings: []
+    )
+  }
+
+  private func validVocabularyCardDocument() -> LearningExplanationDocument {
+    LearningExplanationDocument(
+      schemaVersion: 1,
+      mode: .word,
+      sourceText: "context window",
+      language: LearningExplanationLanguage(source: "en", explanation: "zh-Hans"),
+      sentenceAnalysis: nil,
+      wordExplanation: nil,
+      vocabularyCard: StructuredVocabularyCard(
+        front: VocabularyCardFront(text: "context window", hint: "LLM limit"),
+        back: VocabularyCardBack(coreMeaning: "上下文窗口", memoryNote: "想象模型能看到的一扇窗口。", usage: "常用于描述模型能参考的文本范围。"),
+        examples: [
+          VocabularyCardExample(sentence: "The context window is large.", translation: "上下文窗口很大。")
+        ],
+        reviewPrompts: ["context window 是什么意思？"]
+      ),
       warnings: []
     )
   }

@@ -7,6 +7,7 @@ public enum LearningExplanationValidationError: Error, Equatable, CustomStringCo
   case missingBranch(String)
   case duplicateID(String, String)
   case emptyRequiredField(String)
+  case unknownRelationshipNodeReference(field: String, id: String)
 
   public var description: String {
     switch self {
@@ -22,6 +23,8 @@ public enum LearningExplanationValidationError: Error, Equatable, CustomStringCo
       "Duplicate ID in \(scope): \(id)."
     case .emptyRequiredField(let field):
       "Missing required text in \(field)."
+    case .unknownRelationshipNodeReference(let field, let id):
+      "Unknown relationship node reference in \(field): \(id)."
     }
   }
 }
@@ -54,8 +57,7 @@ public struct LearningExplanationValidator: Sendable {
       guard let wordExplanation = document.wordExplanation else {
         throw LearningExplanationValidationError.missingBranch("wordExplanation")
       }
-      try requireText(wordExplanation.term, field: "wordExplanation.term")
-      try requireText(wordExplanation.coreMeaning, field: "wordExplanation.coreMeaning")
+      try validateWordExplanation(wordExplanation)
     }
   }
 
@@ -78,6 +80,27 @@ public struct LearningExplanationValidator: Sendable {
     }
     try requireText(vocabularyCard.front.text, field: "vocabularyCard.front.text")
     try requireText(vocabularyCard.back.coreMeaning, field: "vocabularyCard.back.coreMeaning")
+    try requireText(vocabularyCard.back.memoryNote, field: "vocabularyCard.back.memoryNote")
+    try requireText(vocabularyCard.back.usage, field: "vocabularyCard.back.usage")
+    for (index, example) in vocabularyCard.examples.enumerated() {
+      try requireText(example.sentence, field: "vocabularyCard.examples[\(index)].sentence")
+      try requireText(example.translation, field: "vocabularyCard.examples[\(index)].translation")
+    }
+    try validateTextEntries(vocabularyCard.reviewPrompts, field: "vocabularyCard.reviewPrompts")
+  }
+
+  private func validateWordExplanation(_ explanation: WordExplanation) throws {
+    try requireText(explanation.term, field: "wordExplanation.term")
+    try requireText(explanation.partOfSpeech, field: "wordExplanation.partOfSpeech")
+    try requireText(explanation.coreMeaning, field: "wordExplanation.coreMeaning")
+    try requireText(explanation.contextualMeaning, field: "wordExplanation.contextualMeaning")
+    try validateTextEntries(explanation.usageNotes, field: "wordExplanation.usageNotes")
+    try validateTextEntries(explanation.collocations, field: "wordExplanation.collocations")
+    for (index, example) in explanation.examples.enumerated() {
+      try requireText(example.sentence, field: "wordExplanation.examples[\(index)].sentence")
+      try requireText(example.translation, field: "wordExplanation.examples[\(index)].translation")
+    }
+    try validateTextEntries(explanation.commonMistakes, field: "wordExplanation.commonMistakes")
   }
 
   private func validateSentenceAnalysis(_ analysis: SentenceAnalysis) throws {
@@ -93,11 +116,29 @@ public struct LearningExplanationValidator: Sendable {
       try requireText(node.title, field: "sentenceAnalysis.relationshipDiagram.nodes.\(node.id).title")
       try requireText(node.text, field: "sentenceAnalysis.relationshipDiagram.nodes.\(node.id).text")
     }
+    try validateRelationshipEdges(analysis.relationshipDiagram.edges, nodeIDs: Set(analysis.relationshipDiagram.nodes.map(\.id)))
     var structureItemIDs: Set<String> = []
     try validateStructureItems(analysis.structureBreakdown.items, scope: "structureBreakdown.items", seen: &structureItemIDs)
     try requireText(analysis.logicSummary.title, field: "sentenceAnalysis.logicSummary.title")
     try requireText(analysis.translation.title, field: "sentenceAnalysis.translation.title")
     try requireText(analysis.translation.text, field: "sentenceAnalysis.translation.text")
+  }
+
+  private func validateRelationshipEdges(_ edges: [RelationshipEdge], nodeIDs: Set<String>) throws {
+    for (index, edge) in edges.enumerated() {
+      let baseField = "sentenceAnalysis.relationshipDiagram.edges[\(index)]"
+      try requireText(edge.from, field: "\(baseField).from")
+      try requireText(edge.to, field: "\(baseField).to")
+      try requireText(edge.labelZh, field: "\(baseField).labelZh")
+      try requireText(edge.labelEn, field: "\(baseField).labelEn")
+
+      guard nodeIDs.contains(edge.from) else {
+        throw LearningExplanationValidationError.unknownRelationshipNodeReference(field: "\(baseField).from", id: edge.from)
+      }
+      guard nodeIDs.contains(edge.to) else {
+        throw LearningExplanationValidationError.unknownRelationshipNodeReference(field: "\(baseField).to", id: edge.to)
+      }
+    }
   }
 
   private func validateStructureItems(_ items: [StructureItem], scope: String, seen: inout Set<String>) throws {
@@ -126,6 +167,12 @@ public struct LearningExplanationValidator: Sendable {
   private func requireText(_ text: String, field: String) throws {
     if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
       throw LearningExplanationValidationError.emptyRequiredField(field)
+    }
+  }
+
+  private func validateTextEntries(_ entries: [String], field: String) throws {
+    for (index, entry) in entries.enumerated() {
+      try requireText(entry, field: "\(field)[\(index)]")
     }
   }
 
