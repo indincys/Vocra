@@ -60,4 +60,45 @@ final class LearningExplanationSummaryRendererTests: XCTestCase {
     XCTAssertTrue(summary.contains("Think of finding something valuable by chance."))
     XCTAssertTrue(summary.contains("Finding that cafe was pure serendipity."))
   }
+
+  func testPrefersWordExplanationWhenVocabularyCardIsAlsoPresent() {
+    let document = LearningExplanationDocument(
+      schemaVersion: 1,
+      mode: .word,
+      sourceText: "serendipity",
+      language: LearningExplanationLanguage(source: "en", explanation: "zh-Hans"),
+      sentenceAnalysis: nil,
+      wordExplanation: WordExplanation(
+        term: "serendipity",
+        pronunciation: nil,
+        partOfSpeech: "noun",
+        coreMeaning: "A lucky accidental discovery.",
+        contextualMeaning: "Finding something good without planning.",
+        usageNotes: ["Usually positive and slightly literary."],
+        collocations: [],
+        examples: [],
+        commonMistakes: []
+      ),
+      vocabularyCard: StructuredVocabularyCard(
+        front: VocabularyCardFront(text: "serendipity", hint: nil),
+        back: VocabularyCardBack(
+          coreMeaning: "Card-only meaning",
+          memoryNote: "Card-only memory note",
+          usage: "Card-only usage"
+        ),
+        examples: [
+          VocabularyCardExample(sentence: "Card-only example sentence.", translation: "卡片专用例句。")
+        ],
+        reviewPrompts: []
+      ),
+      warnings: []
+    )
+
+    let summary = LearningExplanationSummaryRenderer().render(document)
+
+    XCTAssertTrue(summary.contains("A lucky accidental discovery."))
+    XCTAssertTrue(summary.contains("Finding something good without planning."))
+    XCTAssertFalse(summary.contains("Card-only memory note"))
+    XCTAssertFalse(summary.contains("Card-only example sentence."))
+  }
 }

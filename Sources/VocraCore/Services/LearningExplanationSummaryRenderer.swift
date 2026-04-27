@@ -4,16 +4,22 @@ public struct LearningExplanationSummaryRenderer: Sendable {
   public init() {}
 
   public func render(_ document: LearningExplanationDocument) -> String {
+    switch document.mode {
+    case .sentence:
+      if document.sentenceAnalysis != nil {
+        return renderSentence(document)
+      }
+    case .word, .phrase:
+      if document.wordExplanation != nil {
+        return renderWord(document)
+      }
+    }
+
     if let vocabularyCard = document.vocabularyCard {
       return renderVocabularyCard(vocabularyCard, sourceText: document.sourceText)
     }
 
-    return switch document.mode {
-    case .sentence:
-      renderSentence(document)
-    case .word, .phrase:
-      renderWord(document)
-    }
+    return document.sourceText
   }
 
   private func renderSentence(_ document: LearningExplanationDocument) -> String {
