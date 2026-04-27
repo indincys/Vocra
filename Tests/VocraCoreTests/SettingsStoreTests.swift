@@ -112,4 +112,30 @@ final class SettingsStoreTests: XCTestCase {
 
     XCTAssertEqual(store.loadLearningPreferences(), preferences)
   }
+
+  func testUserDefaultsSettingsStoreNormalizesLearningPreferenceExampleCount() throws {
+    let suiteName = "SettingsStoreTests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let store = UserDefaultsSettingsStore(defaults: defaults)
+
+    store.saveLearningPreferences(LearningPreferences(
+      explanationDepth: .standard,
+      exampleCount: 999,
+      chineseStyle: .concise,
+      diagramDensity: .simple
+    ))
+
+    XCTAssertEqual(store.loadLearningPreferences().exampleCount, 3)
+
+    let corruptedPreferences = LearningPreferences(
+      explanationDepth: .detailed,
+      exampleCount: 0,
+      chineseStyle: .teacherLike,
+      diagramDensity: .full
+    )
+    defaults.set(try JSONEncoder().encode(corruptedPreferences), forKey: "learningPreferences")
+
+    XCTAssertEqual(store.loadLearningPreferences().exampleCount, 1)
+  }
 }

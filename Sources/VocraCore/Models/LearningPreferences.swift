@@ -33,6 +33,15 @@ public struct LearningPreferences: Codable, Equatable, Sendable {
     self.diagramDensity = diagramDensity
   }
 
+  public var normalized: LearningPreferences {
+    LearningPreferences(
+      explanationDepth: explanationDepth,
+      exampleCount: min(max(exampleCount, 1), 3),
+      chineseStyle: chineseStyle,
+      diagramDensity: diagramDensity
+    )
+  }
+
   public static let `default` = LearningPreferences(
     explanationDepth: .detailed,
     exampleCount: 2,

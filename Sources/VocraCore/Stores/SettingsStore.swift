@@ -89,11 +89,11 @@ public final class UserDefaultsSettingsStore: SettingsStore, @unchecked Sendable
     else {
       return .default
     }
-    return preferences
+    return preferences.normalized
   }
 
   public func saveLearningPreferences(_ preferences: LearningPreferences) {
-    guard let data = try? JSONEncoder().encode(preferences) else { return }
+    guard let data = try? JSONEncoder().encode(preferences.normalized) else { return }
     defaults.set(data, forKey: learningPreferencesKey)
   }
 
