@@ -234,6 +234,28 @@ final class AppModelTests: XCTestCase {
     XCTAssertEqual(storedDocument.sourceText, "context window")
   }
 
+  func testShortcutPreservesExplanationWhenVocabularyCardGenerationFails() async throws {
+    let panelPresenter = RecordingPanelPresenter()
+    let repository = try SQLiteVocabularyRepository.inMemory()
+    let model = AppModel(
+      selectionReader: StubSelectionReader(selection: CapturedTextSelection(text: "context window", sourceApp: "Tests")),
+      vocabularyRepository: repository,
+      panelPresenter: panelPresenter,
+      explanationProvider: { captured in
+        testWordDocument(text: captured.cleanedText, mode: captured.mode)
+      },
+      vocabularyCardProvider: { _ in throw TestError.cardGenerationFailed }
+    )
+
+    await model.handleShortcut()
+
+    XCTAssertEqual(panelPresenter.contents.last?.capturedText?.cleanedText, "context window")
+    XCTAssertEqual(panelPresenter.contents.last?.document?.sourceText, "context window")
+    XCTAssertNil(panelPresenter.contents.last?.errorMessage)
+    XCTAssertNil(panelPresenter.contents.last?.validationErrorMessage)
+    XCTAssertTrue(try repository.allCards().isEmpty)
+  }
+
   func testStartStoresShortcutRegistrationFailureMessage() throws {
     let shortcutService = StubShortcutService(registrationResult: .failed(.registerHotKey(-9878)))
     let model = try AppModel(
@@ -321,6 +343,7 @@ private final class RecordingPanelPresenter: ExplanationPanelPresenting {
 
 private enum TestError: Error {
   case explanationFailed
+  case cardGenerationFailed
 }
 
 private func testSentenceDocument(text: String) -> LearningExplanationDocument {

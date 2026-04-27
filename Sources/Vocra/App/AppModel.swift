@@ -153,29 +153,40 @@ final class AppModel {
         return
       }
 
-      if captured.mode == .word || captured.mode == .phrase {
-        let vocabularyType: VocabularyType = captured.mode == .word ? .word : .phrase
-        let cardDocument = try await generateVocabularyCard(for: captured)
-        guard isCurrentExplanationRequest(requestID) else {
-          shortcutFlowLogger.info("Ignoring stale shortcut vocabulary card result.")
-          return
-        }
-        let cardJSON = String(data: try JSONEncoder().encode(cardDocument), encoding: .utf8)!
-        _ = try vocabularyRepository.upsert(
-          text: captured.cleanedText,
-          type: vocabularyType,
-          cardJSON: cardJSON,
-          sourceApp: captured.sourceApp,
-          now: Date()
-        )
-        vocabularyRevision += 1
-      }
-
       latestCapturedText = captured
       latestDocument = document
       latestErrorMessage = nil
       latestValidationErrorMessage = nil
       refreshPanel()
+
+      if captured.mode == .word || captured.mode == .phrase {
+        let vocabularyType: VocabularyType = captured.mode == .word ? .word : .phrase
+        do {
+          let cardDocument = try await generateVocabularyCard(for: captured)
+          guard isCurrentExplanationRequest(requestID) else {
+            shortcutFlowLogger.info("Ignoring stale shortcut vocabulary card result.")
+            return
+          }
+          let cardJSON = String(data: try JSONEncoder().encode(cardDocument), encoding: .utf8)!
+          _ = try vocabularyRepository.upsert(
+            text: captured.cleanedText,
+            type: vocabularyType,
+            cardJSON: cardJSON,
+            sourceApp: captured.sourceApp,
+            now: Date()
+          )
+          vocabularyRevision += 1
+        } catch {
+          guard isCurrentExplanationRequest(requestID) else {
+            shortcutFlowLogger.info("Ignoring stale shortcut vocabulary card error result.")
+            return
+          }
+          shortcutFlowLogger.error(
+            "Vocabulary card generation failed after primary explanation was shown: \(String(describing: error), privacy: .public)"
+          )
+        }
+      }
+
       shortcutFlowLogger.info(
         "Shortcut handling finished in \(elapsedMilliseconds(from: flowStart, clock: clock), privacy: .public) ms."
       )
