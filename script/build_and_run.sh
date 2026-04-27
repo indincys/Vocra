@@ -44,11 +44,12 @@ APP_FRAMEWORKS="$APP_CONTENTS/Frameworks"
 APP_BINARY="$APP_MACOS/$EXECUTABLE_NAME"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
 APP_ICON="$ROOT_DIR/Resources/AppIcon/Vocra.icns"
+SWIFT_BUILD_ARGS=(-c "$SWIFT_CONFIGURATION" -Xlinker -rpath -Xlinker "@loader_path/../Frameworks")
 
 pkill -x "$EXECUTABLE_NAME" >/dev/null 2>&1 || true
 
-swift build -c "$SWIFT_CONFIGURATION"
-BUILD_BINARY="$(swift build -c "$SWIFT_CONFIGURATION" --show-bin-path)/$PRODUCT_NAME"
+swift build "${SWIFT_BUILD_ARGS[@]}"
+BUILD_BINARY="$(swift build "${SWIFT_BUILD_ARGS[@]}" --show-bin-path)/$PRODUCT_NAME"
 
 rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_MACOS" "$APP_RESOURCES" "$APP_FRAMEWORKS"
