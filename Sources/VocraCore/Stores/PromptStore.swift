@@ -81,7 +81,11 @@ public final class UserDefaultsPromptStore: PromptStore, @unchecked Sendable {
   }
 
   public func template(for kind: PromptKind) -> PromptTemplate? {
-    loadAll().first { $0.kind == kind }
+    let templates = loadAll()
+    if let template = templates.first(where: { $0.kind == kind }) {
+      return template
+    }
+    return templates.first { $0.kind == kind.schemaFallbackKind }
   }
 
   public func save(_ template: PromptTemplate) {
