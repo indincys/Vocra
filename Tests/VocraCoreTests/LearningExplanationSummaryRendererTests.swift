@@ -27,4 +27,37 @@ final class LearningExplanationSummaryRendererTests: XCTestCase {
     XCTAssertTrue(summary.contains("Codex works best."))
     XCTAssertTrue(summary.contains("Codex 效果最好。"))
   }
+
+  func testRendersVocabularyCardPlainTextSummaryBeforeModeFallback() {
+    let document = LearningExplanationDocument(
+      schemaVersion: 1,
+      mode: .word,
+      sourceText: "serendipity",
+      language: LearningExplanationLanguage(source: "en", explanation: "zh-Hans"),
+      sentenceAnalysis: nil,
+      wordExplanation: nil,
+      vocabularyCard: StructuredVocabularyCard(
+        front: VocabularyCardFront(text: "serendipity", hint: "unexpected good luck"),
+        back: VocabularyCardBack(
+          coreMeaning: "意外发现美好事物的能力或好运。",
+          memoryNote: "Think of finding something valuable by chance.",
+          usage: "Use it for pleasant accidental discoveries."
+        ),
+        examples: [
+          VocabularyCardExample(sentence: "Finding that cafe was pure serendipity.", translation: "发现那家咖啡馆纯属意外之喜。")
+        ],
+        reviewPrompts: [
+          "Use serendipity in a sentence."
+        ]
+      ),
+      warnings: []
+    )
+
+    let summary = LearningExplanationSummaryRenderer().render(document)
+
+    XCTAssertTrue(summary.contains("serendipity"))
+    XCTAssertTrue(summary.contains("意外发现美好事物的能力或好运。"))
+    XCTAssertTrue(summary.contains("Think of finding something valuable by chance."))
+    XCTAssertTrue(summary.contains("Finding that cafe was pure serendipity."))
+  }
 }

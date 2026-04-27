@@ -4,7 +4,11 @@ public struct LearningExplanationSummaryRenderer: Sendable {
   public init() {}
 
   public func render(_ document: LearningExplanationDocument) -> String {
-    switch document.mode {
+    if let vocabularyCard = document.vocabularyCard {
+      return renderVocabularyCard(vocabularyCard, sourceText: document.sourceText)
+    }
+
+    return switch document.mode {
     case .sentence:
       renderSentence(document)
     case .word, .phrase:
@@ -31,6 +35,21 @@ public struct LearningExplanationSummaryRenderer: Sendable {
       word.coreMeaning,
       word.contextualMeaning,
       word.usageNotes.joined(separator: "\n")
+    ]
+    .filter { !$0.isEmpty }
+    .joined(separator: "\n\n")
+  }
+
+  private func renderVocabularyCard(_ card: StructuredVocabularyCard, sourceText: String) -> String {
+    [
+      sourceText,
+      card.front.text,
+      card.front.hint ?? "",
+      card.back.coreMeaning,
+      card.back.memoryNote,
+      card.back.usage,
+      card.examples.map { [$0.sentence, $0.translation].joined(separator: "\n") }.joined(separator: "\n\n"),
+      card.reviewPrompts.joined(separator: "\n")
     ]
     .filter { !$0.isEmpty }
     .joined(separator: "\n\n")

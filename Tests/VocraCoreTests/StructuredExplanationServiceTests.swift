@@ -28,6 +28,19 @@ final class StructuredExplanationServiceTests: XCTestCase {
     XCTAssertTrue(aiClient.prompts[1].contains("Repair the JSON"))
   }
 
+  func testReturnsValidatedVocabularyCardFromAIJSON() async throws {
+    let aiClient = StubAIClient(responses: [Self.validVocabularyCardJSON])
+    let service = StructuredExplanationService(aiClient: aiClient)
+    let captured = CapturedText(originalText: "serendipity", cleanedText: "serendipity", mode: .word, sourceApp: nil)
+    let template = PromptTemplate(kind: .vocabularyCardSchema, body: "Make a card for {{text}}.")
+
+    let document = try await service.vocabularyCard(captured: captured, template: template)
+
+    XCTAssertNotNil(document.vocabularyCard)
+    XCTAssertEqual(document.vocabularyCard?.front.text, "serendipity")
+    XCTAssertEqual(aiClient.prompts.count, 1)
+  }
+
   private static let validSentenceJSON = """
   {
     "schemaVersion": 1,
@@ -45,6 +58,32 @@ final class StructuredExplanationServiceTests: XCTestCase {
     },
     "wordExplanation": null,
     "vocabularyCard": null,
+    "warnings": []
+  }
+  """
+
+  private static let validVocabularyCardJSON = """
+  {
+    "schemaVersion": 1,
+    "mode": "word",
+    "sourceText": "serendipity",
+    "language": { "source": "en", "explanation": "zh-Hans" },
+    "sentenceAnalysis": null,
+    "wordExplanation": null,
+    "vocabularyCard": {
+      "front": { "text": "serendipity", "hint": "unexpected good luck" },
+      "back": {
+        "coreMeaning": "意外发现美好事物的能力或好运。",
+        "memoryNote": "Think of finding something valuable by chance.",
+        "usage": "Use it for pleasant accidental discoveries."
+      },
+      "examples": [
+        { "sentence": "Finding that cafe was pure serendipity.", "translation": "发现那家咖啡馆纯属意外之喜。" }
+      ],
+      "reviewPrompts": [
+        "Use serendipity in a sentence."
+      ]
+    },
     "warnings": []
   }
   """
