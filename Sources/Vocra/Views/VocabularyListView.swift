@@ -16,6 +16,9 @@ struct VocabularyListView: View {
         VStack(alignment: .leading, spacing: 4) {
           Text(card.text)
             .font(.headline)
+          Text(card.type.rawValue.capitalized)
+            .font(.caption)
+            .foregroundStyle(.secondary)
           Text(card.status.rawValue.capitalized)
             .font(.caption)
             .foregroundStyle(.secondary)

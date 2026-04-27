@@ -27,8 +27,16 @@ struct ReviewView: View {
               .fontWeight(.semibold)
 
             if showsBack {
-              MarkdownWebView(markdown: card.cardMarkdown)
+              if let structuredCard = decodedCard(from: card) {
+                ScrollView {
+                  VocabularyCardLearningView(card: structuredCard)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
                 .frame(maxWidth: .infinity, minHeight: 220)
+              } else {
+                Text("This card could not be decoded.")
+                  .foregroundStyle(.red)
+              }
             }
           }
           .padding(32)
@@ -54,5 +62,15 @@ struct ReviewView: View {
       index += 1
     }
     .buttonStyle(.glass)
+  }
+
+  private func decodedCard(from card: VocabularyCard) -> StructuredVocabularyCard? {
+    guard
+      let data = card.cardJSON.data(using: .utf8),
+      let document = try? JSONDecoder().decode(LearningExplanationDocument.self, from: data)
+    else {
+      return nil
+    }
+    return document.vocabularyCard
   }
 }
