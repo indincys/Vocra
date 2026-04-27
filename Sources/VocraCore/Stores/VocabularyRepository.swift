@@ -4,7 +4,7 @@ import SQLite3
 public protocol VocabularyRepository: Sendable {
   func allCards() throws -> [VocabularyCard]
   func dueCards(now: Date) throws -> [VocabularyCard]
-  func upsert(text: String, type: VocabularyType, cardMarkdown: String, sourceApp: String?, now: Date) throws -> VocabularyCard
+  func upsert(text: String, type: VocabularyType, cardJSON: String, sourceApp: String?, now: Date) throws -> VocabularyCard
   func applyReview(cardID: UUID, rating: ReviewRating, now: Date, scheduler: ReviewScheduler) throws
 }
 
@@ -28,10 +28,10 @@ public final class SQLiteVocabularyRepository: VocabularyRepository, @unchecked 
     try fetchCards(whereClause: "status != 'mastered' AND nextReviewAt IS NOT NULL AND nextReviewAt <= ?", bindings: [.double(now.timeIntervalSince1970)])
   }
 
-  public func upsert(text: String, type: VocabularyType, cardMarkdown: String, sourceApp: String?, now: Date) throws -> VocabularyCard {
+  public func upsert(text: String, type: VocabularyType, cardJSON: String, sourceApp: String?, now: Date) throws -> VocabularyCard {
     let normalized = normalize(text)
     if var existing = try card(normalizedText: normalized) {
-      existing.cardMarkdown = cardMarkdown
+      existing.cardJSON = cardJSON
       existing.sourceApp = sourceApp
       existing.updatedAt = now
       try save(existing, normalizedText: normalized)
@@ -41,7 +41,7 @@ public final class SQLiteVocabularyRepository: VocabularyRepository, @unchecked 
     let card = VocabularyCard(
       text: text.trimmingCharacters(in: .whitespacesAndNewlines),
       type: type,
-      cardMarkdown: cardMarkdown,
+      cardJSON: cardJSON,
       sourceApp: sourceApp,
       createdAt: now,
       updatedAt: now,
@@ -53,6 +53,11 @@ public final class SQLiteVocabularyRepository: VocabularyRepository, @unchecked 
     )
     try insert(card, normalizedText: normalized)
     return card
+  }
+
+  @available(*, deprecated, message: "Transitional bridge for Task 6; use cardJSON.")
+  public func upsert(text: String, type: VocabularyType, cardMarkdown: String, sourceApp: String?, now: Date) throws -> VocabularyCard {
+    try upsert(text: text, type: type, cardJSON: cardMarkdown, sourceApp: sourceApp, now: now)
   }
 
   public func applyReview(cardID: UUID, rating: ReviewRating, now: Date, scheduler: ReviewScheduler) throws {
@@ -68,13 +73,18 @@ public final class SQLiteVocabularyRepository: VocabularyRepository, @unchecked 
   }
 
   private func migrate() throws {
+    let version = try userVersion()
+    if version < 2 {
+      try database.execute("DROP TABLE IF EXISTS vocabulary_cards;")
+    }
     try database.execute("""
     CREATE TABLE IF NOT EXISTS vocabulary_cards (
       id TEXT PRIMARY KEY,
       normalizedText TEXT UNIQUE NOT NULL,
       text TEXT NOT NULL,
       type TEXT NOT NULL,
-      cardMarkdown TEXT NOT NULL,
+      cardJSON TEXT NOT NULL,
+      schemaVersion INTEGER NOT NULL,
       sourceApp TEXT,
       createdAt REAL NOT NULL,
       updatedAt REAL NOT NULL,
@@ -85,6 +95,14 @@ public final class SQLiteVocabularyRepository: VocabularyRepository, @unchecked 
       familiarityLevel INTEGER NOT NULL
     );
     """)
+    try database.execute("PRAGMA user_version = 2;")
+  }
+
+  private func userVersion() throws -> Int {
+    let statement = try database.prepare("PRAGMA user_version;")
+    defer { sqlite3_finalize(statement) }
+    guard sqlite3_step(statement) == SQLITE_ROW else { return 0 }
+    return Int(sqlite3_column_int(statement, 0))
   }
 
   private func normalize(_ text: String) -> String {
@@ -99,16 +117,16 @@ public final class SQLiteVocabularyRepository: VocabularyRepository, @unchecked 
   private func insert(_ card: VocabularyCard, normalizedText: String) throws {
     try executeSave(card, normalizedText: normalizedText, sql: """
     INSERT INTO vocabulary_cards
-    (id, normalizedText, text, type, cardMarkdown, sourceApp, createdAt, updatedAt, lastReviewedAt, nextReviewAt, reviewCount, status, familiarityLevel)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    (id, normalizedText, text, type, cardJSON, schemaVersion, sourceApp, createdAt, updatedAt, lastReviewedAt, nextReviewAt, reviewCount, status, familiarityLevel)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
     """)
   }
 
   private func save(_ card: VocabularyCard, normalizedText: String) throws {
     try executeSave(card, normalizedText: normalizedText, sql: """
     REPLACE INTO vocabulary_cards
-    (id, normalizedText, text, type, cardMarkdown, sourceApp, createdAt, updatedAt, lastReviewedAt, nextReviewAt, reviewCount, status, familiarityLevel)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    (id, normalizedText, text, type, cardJSON, schemaVersion, sourceApp, createdAt, updatedAt, lastReviewedAt, nextReviewAt, reviewCount, status, familiarityLevel)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
     """)
   }
 
@@ -119,15 +137,16 @@ public final class SQLiteVocabularyRepository: VocabularyRepository, @unchecked 
     sqlite3_bind_text(statement, 2, normalizedText, -1, SQLITE_TRANSIENT)
     sqlite3_bind_text(statement, 3, card.text, -1, SQLITE_TRANSIENT)
     sqlite3_bind_text(statement, 4, card.type.rawValue, -1, SQLITE_TRANSIENT)
-    sqlite3_bind_text(statement, 5, card.cardMarkdown, -1, SQLITE_TRANSIENT)
-    bindOptionalText(statement, 6, card.sourceApp)
-    sqlite3_bind_double(statement, 7, card.createdAt.timeIntervalSince1970)
-    sqlite3_bind_double(statement, 8, card.updatedAt.timeIntervalSince1970)
-    bindOptionalDate(statement, 9, card.lastReviewedAt)
-    bindOptionalDate(statement, 10, card.nextReviewAt)
-    sqlite3_bind_int(statement, 11, Int32(card.reviewCount))
-    sqlite3_bind_text(statement, 12, card.status.rawValue, -1, SQLITE_TRANSIENT)
-    sqlite3_bind_int(statement, 13, Int32(card.familiarityLevel))
+    sqlite3_bind_text(statement, 5, card.cardJSON, -1, SQLITE_TRANSIENT)
+    sqlite3_bind_int(statement, 6, Int32(LearningExplanationDocument.currentSchemaVersion))
+    bindOptionalText(statement, 7, card.sourceApp)
+    sqlite3_bind_double(statement, 8, card.createdAt.timeIntervalSince1970)
+    sqlite3_bind_double(statement, 9, card.updatedAt.timeIntervalSince1970)
+    bindOptionalDate(statement, 10, card.lastReviewedAt)
+    bindOptionalDate(statement, 11, card.nextReviewAt)
+    sqlite3_bind_int(statement, 12, Int32(card.reviewCount))
+    sqlite3_bind_text(statement, 13, card.status.rawValue, -1, SQLITE_TRANSIENT)
+    sqlite3_bind_int(statement, 14, Int32(card.familiarityLevel))
     guard sqlite3_step(statement) == SQLITE_DONE else { throw SQLiteError.step("save vocabulary card failed") }
   }
 
@@ -145,7 +164,7 @@ public final class SQLiteVocabularyRepository: VocabularyRepository, @unchecked 
   }
 
   private func fetchCards(whereClause: String, bindings: [Binding]) throws -> [VocabularyCard] {
-    let statement = try database.prepare("SELECT id, text, type, cardMarkdown, sourceApp, createdAt, updatedAt, lastReviewedAt, nextReviewAt, reviewCount, status, familiarityLevel FROM vocabulary_cards WHERE \(whereClause) ORDER BY updatedAt DESC;")
+    let statement = try database.prepare("SELECT id, text, type, cardJSON, sourceApp, createdAt, updatedAt, lastReviewedAt, nextReviewAt, reviewCount, status, familiarityLevel FROM vocabulary_cards WHERE \(whereClause) ORDER BY updatedAt DESC;")
     defer { sqlite3_finalize(statement) }
 
     for (index, binding) in bindings.enumerated() {
@@ -168,7 +187,7 @@ public final class SQLiteVocabularyRepository: VocabularyRepository, @unchecked 
       id: UUID(uuidString: text(statement, 0))!,
       text: text(statement, 1),
       type: VocabularyType(rawValue: text(statement, 2))!,
-      cardMarkdown: text(statement, 3),
+      cardJSON: text(statement, 3),
       sourceApp: optionalText(statement, 4),
       createdAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 5)),
       updatedAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 6)),

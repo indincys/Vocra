@@ -23,7 +23,9 @@ public struct VocabularyCard: Identifiable, Codable, Equatable, Sendable {
   public var id: UUID
   public var text: String
   public var type: VocabularyType
-  public var cardMarkdown: String
+  public var cardJSON: String
+  @available(*, deprecated, message: "Use cardJSON until Task 6 updates AppModel and ReviewView.")
+  public var cardMarkdown: String { cardJSON }
   public var sourceApp: String?
   public var createdAt: Date
   public var updatedAt: Date
@@ -37,7 +39,7 @@ public struct VocabularyCard: Identifiable, Codable, Equatable, Sendable {
     id: UUID = UUID(),
     text: String,
     type: VocabularyType,
-    cardMarkdown: String,
+    cardJSON: String,
     sourceApp: String?,
     createdAt: Date,
     updatedAt: Date,
@@ -50,7 +52,7 @@ public struct VocabularyCard: Identifiable, Codable, Equatable, Sendable {
     self.id = id
     self.text = text
     self.type = type
-    self.cardMarkdown = cardMarkdown
+    self.cardJSON = cardJSON
     self.sourceApp = sourceApp
     self.createdAt = createdAt
     self.updatedAt = updatedAt
