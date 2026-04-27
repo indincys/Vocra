@@ -42,29 +42,31 @@ struct ExplanationPanelView: View {
 
   @ViewBuilder
   private var content: some View {
-    if let validationErrorMessage {
+    if let errorMessage {
+      errorText(errorMessage, color: .red)
+    } else if let validationErrorMessage {
+      errorText(validationErrorMessage, color: .orange)
+    } else if let document {
       ScrollView {
-        Text(validationErrorMessage)
-          .foregroundStyle(.orange)
-          .textSelection(.enabled)
+        LearningExplanationView(document: document)
+          .padding(.vertical, 2)
           .frame(maxWidth: .infinity, alignment: .leading)
       }
       .frame(minHeight: 320)
-    } else if let errorMessage {
-      ScrollView {
-        Text(errorMessage)
-          .foregroundStyle(.red)
-          .textSelection(.enabled)
-          .frame(maxWidth: .infinity, alignment: .leading)
-      }
-      .frame(minHeight: 320)
-    } else if document == nil {
+    } else {
       ProgressView()
         .frame(maxWidth: .infinity, minHeight: 320)
-    } else {
-      MarkdownWebView(markdown: renderedSummary)
-        .frame(minHeight: 320)
     }
+  }
+
+  private func errorText(_ message: String, color: Color) -> some View {
+    ScrollView {
+      Text(message)
+        .foregroundStyle(color)
+        .textSelection(.enabled)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+    .frame(minHeight: 320)
   }
 
   private var header: some View {
