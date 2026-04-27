@@ -57,7 +57,8 @@ public final class SQLiteVocabularyRepository: VocabularyRepository, @unchecked 
 
   @available(*, deprecated, message: "Transitional bridge for Task 6; use cardJSON.")
   public func upsert(text: String, type: VocabularyType, cardMarkdown: String, sourceApp: String?, now: Date) throws -> VocabularyCard {
-    try upsert(text: text, type: type, cardJSON: cardMarkdown, sourceApp: sourceApp, now: now)
+    let cardJSON = try legacyCardJSON(text: text, type: type, cardMarkdown: cardMarkdown)
+    return try upsert(text: text, type: type, cardJSON: cardJSON, sourceApp: sourceApp, now: now)
   }
 
   public func applyReview(cardID: UUID, rating: ReviewRating, now: Date, scheduler: ReviewScheduler) throws {
@@ -112,6 +113,33 @@ public final class SQLiteVocabularyRepository: VocabularyRepository, @unchecked 
       .filter { !$0.isEmpty }
       .joined(separator: " ")
       .lowercased()
+  }
+
+  private func legacyCardJSON(text: String, type: VocabularyType, cardMarkdown: String) throws -> String {
+    let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    let trimmedMarkdown = cardMarkdown.trimmingCharacters(in: .whitespacesAndNewlines)
+    let coreMeaning = trimmedMarkdown.isEmpty ? trimmedText : cardMarkdown
+    let document = LearningExplanationDocument(
+      schemaVersion: LearningExplanationDocument.currentSchemaVersion,
+      mode: type == .word ? .word : .phrase,
+      sourceText: trimmedText,
+      language: LearningExplanationLanguage(source: "en", explanation: "zh-Hans"),
+      sentenceAnalysis: nil,
+      wordExplanation: nil,
+      vocabularyCard: StructuredVocabularyCard(
+        front: VocabularyCardFront(text: trimmedText, hint: nil),
+        back: VocabularyCardBack(
+          coreMeaning: coreMeaning,
+          memoryNote: "Legacy card content captured before structured card generation.",
+          usage: "Review this item with the saved legacy explanation."
+        ),
+        examples: [],
+        reviewPrompts: []
+      ),
+      warnings: ["Converted from legacy markdown bridge."]
+    )
+    let data = try JSONEncoder().encode(document)
+    return String(decoding: data, as: UTF8.self)
   }
 
   private func insert(_ card: VocabularyCard, normalizedText: String) throws {
