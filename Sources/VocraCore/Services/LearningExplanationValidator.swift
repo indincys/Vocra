@@ -79,6 +79,7 @@ public struct LearningExplanationValidator: Sendable {
       throw LearningExplanationValidationError.missingBranch("vocabularyCard")
     }
     try requireText(vocabularyCard.front.text, field: "vocabularyCard.front.text")
+    try requireOptionalText(vocabularyCard.front.hint, field: "vocabularyCard.front.hint")
     try requireText(vocabularyCard.back.coreMeaning, field: "vocabularyCard.back.coreMeaning")
     try requireText(vocabularyCard.back.memoryNote, field: "vocabularyCard.back.memoryNote")
     try requireText(vocabularyCard.back.usage, field: "vocabularyCard.back.usage")
@@ -91,6 +92,7 @@ public struct LearningExplanationValidator: Sendable {
 
   private func validateWordExplanation(_ explanation: WordExplanation) throws {
     try requireText(explanation.term, field: "wordExplanation.term")
+    try requireOptionalText(explanation.pronunciation, field: "wordExplanation.pronunciation")
     try requireText(explanation.partOfSpeech, field: "wordExplanation.partOfSpeech")
     try requireText(explanation.coreMeaning, field: "wordExplanation.coreMeaning")
     try requireText(explanation.contextualMeaning, field: "wordExplanation.contextualMeaning")
@@ -99,6 +101,7 @@ public struct LearningExplanationValidator: Sendable {
     for (index, example) in explanation.examples.enumerated() {
       try requireText(example.sentence, field: "wordExplanation.examples[\(index)].sentence")
       try requireText(example.translation, field: "wordExplanation.examples[\(index)].translation")
+      try requireOptionalText(example.note, field: "wordExplanation.examples[\(index)].note")
     }
     try validateTextEntries(explanation.commonMistakes, field: "wordExplanation.commonMistakes")
   }
@@ -168,6 +171,13 @@ public struct LearningExplanationValidator: Sendable {
     if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
       throw LearningExplanationValidationError.emptyRequiredField(field)
     }
+  }
+
+  private func requireOptionalText(_ text: String?, field: String) throws {
+    guard let text else {
+      return
+    }
+    try requireText(text, field: field)
   }
 
   private func validateTextEntries(_ entries: [String], field: String) throws {

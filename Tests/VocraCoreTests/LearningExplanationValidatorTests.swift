@@ -21,6 +21,7 @@ final class LearningExplanationValidatorTests: XCTestCase {
 
   func testRejectsBlankWordExplanationUserFacingFields() throws {
     let cases: [(String, (inout LearningExplanationDocument) -> Void)] = [
+      ("wordExplanation.pronunciation", { $0.wordExplanation?.pronunciation = " " }),
       ("wordExplanation.partOfSpeech", { $0.wordExplanation?.partOfSpeech = " " }),
       ("wordExplanation.contextualMeaning", { $0.wordExplanation?.contextualMeaning = "" }),
       ("wordExplanation.examples[0].sentence", {
@@ -31,6 +32,11 @@ final class LearningExplanationValidatorTests: XCTestCase {
       ("wordExplanation.examples[0].translation", {
         $0.wordExplanation?.examples = [
           LearningExample(sentence: "The context window is large.", translation: "", note: nil)
+        ]
+      }),
+      ("wordExplanation.examples[0].note", {
+        $0.wordExplanation?.examples = [
+          LearningExample(sentence: "The context window is large.", translation: "上下文窗口很大。", note: " ")
         ]
       }),
       ("wordExplanation.usageNotes[0]", { $0.wordExplanation?.usageNotes = [" "] }),
@@ -50,6 +56,7 @@ final class LearningExplanationValidatorTests: XCTestCase {
 
   func testRejectsBlankVocabularyCardUserFacingFields() throws {
     let cases: [(String, (inout LearningExplanationDocument) -> Void)] = [
+      ("vocabularyCard.front.hint", { $0.vocabularyCard?.front.hint = " " }),
       ("vocabularyCard.back.memoryNote", { $0.vocabularyCard?.back.memoryNote = " " }),
       ("vocabularyCard.back.usage", { $0.vocabularyCard?.back.usage = "" }),
       ("vocabularyCard.examples[0].sentence", {
