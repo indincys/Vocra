@@ -97,11 +97,29 @@ public final class UserDefaultsPromptStore: PromptStore, @unchecked Sendable {
   }
 
   private func loadAll() -> [PromptTemplate] {
-    guard
-      let data = defaults.data(forKey: key),
-      let templates = try? JSONDecoder().decode([PromptTemplate].self, from: data)
-    else {
-      return InMemoryPromptStore.defaults().allTemplates()
+    let defaultTemplates = InMemoryPromptStore.defaults().allTemplates()
+    guard let data = defaults.data(forKey: key) else {
+      return defaultTemplates
+    }
+
+    guard let records = try? JSONDecoder().decode([PersistedPromptTemplate].self, from: data) else {
+      saveAll(defaultTemplates)
+      return defaultTemplates
+    }
+
+    var templatesByKind = Dictionary(uniqueKeysWithValues: defaultTemplates.map { ($0.kind, $0) })
+    var needsMigration = records.count != PromptKind.allCases.count
+    for record in records {
+      guard let kind = PromptKind(rawValue: record.kind) else {
+        needsMigration = true
+        continue
+      }
+      templatesByKind[kind] = PromptTemplate(kind: kind, body: record.body)
+    }
+
+    let templates = PromptKind.allCases.compactMap { templatesByKind[$0] }
+    if needsMigration || Set(records.map(\.kind)) != Set(PromptKind.allCases.map(\.rawValue)) {
+      saveAll(templates)
     }
     return templates
   }
@@ -110,4 +128,9 @@ public final class UserDefaultsPromptStore: PromptStore, @unchecked Sendable {
     guard let data = try? JSONEncoder().encode(templates) else { return }
     defaults.set(data, forKey: key)
   }
+}
+
+private struct PersistedPromptTemplate: Codable {
+  var kind: String
+  var body: String
 }
