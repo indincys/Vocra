@@ -31,6 +31,29 @@ public struct LearningExplanationDocument: Codable, Equatable, Sendable {
     self.vocabularyCard = vocabularyCard
     self.warnings = warnings
   }
+
+  private enum CodingKeys: String, CodingKey {
+    case schemaVersion
+    case mode
+    case sourceText
+    case language
+    case sentenceAnalysis
+    case wordExplanation
+    case vocabularyCard
+    case warnings
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+    mode = try container.decode(ExplanationMode.self, forKey: .mode)
+    sourceText = try container.decode(String.self, forKey: .sourceText)
+    language = try container.decode(LearningExplanationLanguage.self, forKey: .language)
+    sentenceAnalysis = try container.decodeIfPresent(SentenceAnalysis.self, forKey: .sentenceAnalysis)
+    wordExplanation = try container.decodeIfPresent(WordExplanation.self, forKey: .wordExplanation)
+    vocabularyCard = try container.decodeIfPresent(StructuredVocabularyCard.self, forKey: .vocabularyCard)
+    warnings = try container.decodeStringList(forKey: .warnings)
+  }
 }
 
 public struct LearningExplanationLanguage: Codable, Equatable, Sendable {
@@ -84,6 +107,27 @@ public struct SentenceAnalysis: Codable, Equatable, Sendable {
     self.translation = translation
     self.keyVocabulary = keyVocabulary
   }
+
+  private enum CodingKeys: String, CodingKey {
+    case headline
+    case sentence
+    case structureBreakdown
+    case relationshipDiagram
+    case logicSummary
+    case translation
+    case keyVocabulary
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    headline = try container.decode(LearningHeadline.self, forKey: .headline)
+    sentence = try container.decode(AnalyzedSentence.self, forKey: .sentence)
+    structureBreakdown = try container.decode(StructureBreakdown.self, forKey: .structureBreakdown)
+    relationshipDiagram = try container.decode(RelationshipDiagram.self, forKey: .relationshipDiagram)
+    logicSummary = try container.decode(LogicSummary.self, forKey: .logicSummary)
+    translation = try container.decode(TranslationBlock.self, forKey: .translation)
+    keyVocabulary = try container.decodeIfPresent([KeyVocabularyItem].self, forKey: .keyVocabulary) ?? []
+  }
 }
 
 public struct LearningHeadline: Codable, Equatable, Sendable {
@@ -103,6 +147,23 @@ public struct AnalyzedSentence: Codable, Equatable, Sendable {
   public init(text: String, segments: [SentenceSegment]) {
     self.text = text
     self.segments = segments
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case text
+    case segments
+  }
+
+  public init(from decoder: Decoder) throws {
+    if let text = try? decoder.singleValueContainer().decode(String.self) {
+      self.text = text
+      self.segments = []
+      return
+    }
+
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    text = try container.decode(String.self, forKey: .text)
+    segments = try container.decodeIfPresent([SentenceSegment].self, forKey: .segments) ?? []
   }
 }
 
@@ -164,6 +225,25 @@ public struct StructureItem: Codable, Equatable, Sendable, Identifiable {
     self.labelEn = labelEn
     self.children = children
   }
+
+  private enum CodingKeys: String, CodingKey {
+    case id
+    case text
+    case role
+    case labelZh
+    case labelEn
+    case children
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    id = try container.decode(String.self, forKey: .id)
+    text = try container.decode(String.self, forKey: .text)
+    role = try container.decode(String.self, forKey: .role)
+    labelZh = try container.decode(String.self, forKey: .labelZh)
+    labelEn = try container.decode(String.self, forKey: .labelEn)
+    children = try container.decodeIfPresent([StructureItem].self, forKey: .children) ?? []
+  }
 }
 
 public struct RelationshipDiagram: Codable, Equatable, Sendable {
@@ -173,6 +253,17 @@ public struct RelationshipDiagram: Codable, Equatable, Sendable {
   public init(nodes: [RelationshipNode], edges: [RelationshipEdge]) {
     self.nodes = nodes
     self.edges = edges
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case nodes
+    case edges
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    nodes = try container.decodeIfPresent([RelationshipNode].self, forKey: .nodes) ?? []
+    edges = try container.decodeIfPresent([RelationshipEdge].self, forKey: .edges) ?? []
   }
 }
 
@@ -200,6 +291,31 @@ public struct RelationshipEdge: Codable, Equatable, Sendable {
     self.labelZh = labelZh
     self.labelEn = labelEn
   }
+
+  private enum CodingKeys: String, CodingKey {
+    case from
+    case to
+    case label
+    case labelZh
+    case labelEn
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    from = try container.decode(String.self, forKey: .from)
+    to = try container.decode(String.self, forKey: .to)
+    let sharedLabel = try container.decodeIfPresent(String.self, forKey: .label)?.trimmedNonEmpty
+    labelZh = try container.decodeIfPresent(String.self, forKey: .labelZh)?.trimmedNonEmpty ?? sharedLabel ?? "关系"
+    labelEn = try container.decodeIfPresent(String.self, forKey: .labelEn)?.trimmedNonEmpty ?? sharedLabel ?? "relationship"
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(from, forKey: .from)
+    try container.encode(to, forKey: .to)
+    try container.encode(labelZh, forKey: .labelZh)
+    try container.encode(labelEn, forKey: .labelEn)
+  }
 }
 
 public struct LogicSummary: Codable, Equatable, Sendable {
@@ -211,6 +327,19 @@ public struct LogicSummary: Codable, Equatable, Sendable {
     self.title = title
     self.points = points
     self.coreMeaning = coreMeaning
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case title
+    case points
+    case coreMeaning
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    title = try container.decode(String.self, forKey: .title)
+    points = try container.decodeStringList(forKey: .points)
+    coreMeaning = try container.decode(String.self, forKey: .coreMeaning)
   }
 }
 
@@ -269,6 +398,31 @@ public struct WordExplanation: Codable, Equatable, Sendable {
     self.examples = examples
     self.commonMistakes = commonMistakes
   }
+
+  private enum CodingKeys: String, CodingKey {
+    case term
+    case pronunciation
+    case partOfSpeech
+    case coreMeaning
+    case contextualMeaning
+    case usageNotes
+    case collocations
+    case examples
+    case commonMistakes
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    term = try container.decode(String.self, forKey: .term)
+    pronunciation = try container.decodeIfPresent(String.self, forKey: .pronunciation)
+    partOfSpeech = try container.decode(String.self, forKey: .partOfSpeech)
+    coreMeaning = try container.decode(String.self, forKey: .coreMeaning)
+    contextualMeaning = try container.decode(String.self, forKey: .contextualMeaning)
+    usageNotes = try container.decodeStringList(forKey: .usageNotes)
+    collocations = try container.decodeStringList(forKey: .collocations)
+    examples = try container.decodeIfPresent([LearningExample].self, forKey: .examples) ?? []
+    commonMistakes = try container.decodeStringList(forKey: .commonMistakes)
+  }
 }
 
 public struct LearningExample: Codable, Equatable, Sendable, Identifiable {
@@ -300,6 +454,21 @@ public struct StructuredVocabularyCard: Codable, Equatable, Sendable {
     self.back = back
     self.examples = examples
     self.reviewPrompts = reviewPrompts
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case front
+    case back
+    case examples
+    case reviewPrompts
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    front = try container.decode(VocabularyCardFront.self, forKey: .front)
+    back = try container.decode(VocabularyCardBack.self, forKey: .back)
+    examples = try container.decodeIfPresent([VocabularyCardExample].self, forKey: .examples) ?? []
+    reviewPrompts = try container.decodeStringList(forKey: .reviewPrompts)
   }
 }
 
@@ -333,5 +502,30 @@ public struct VocabularyCardExample: Codable, Equatable, Sendable, Identifiable 
   public init(sentence: String, translation: String) {
     self.sentence = sentence
     self.translation = translation
+  }
+}
+
+private extension KeyedDecodingContainer {
+  func decodeStringList(forKey key: Key) throws -> [String] {
+    guard contains(key), (try decodeNil(forKey: key)) == false else {
+      return []
+    }
+
+    do {
+      return try decode([String].self, forKey: key)
+    } catch {
+      if let text = try? decode(String.self, forKey: key) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? [] : [trimmed]
+      }
+      throw error
+    }
+  }
+}
+
+private extension String {
+  var trimmedNonEmpty: String? {
+    let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
   }
 }

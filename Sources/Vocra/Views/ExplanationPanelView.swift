@@ -3,8 +3,6 @@ import SwiftUI
 import VocraCore
 
 struct ExplanationPanelView: View {
-  @Environment(\.colorScheme) private var colorScheme
-
   let capturedText: CapturedText?
   let document: LearningExplanationDocument?
   let errorMessage: String?
@@ -17,27 +15,25 @@ struct ExplanationPanelView: View {
   }
 
   var body: some View {
-    GlassEffectContainer {
-      VStack(alignment: .leading, spacing: 14) {
-        header
-
-        Divider()
-          .opacity(0.35)
-
-        content
-          .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-        footer
-      }
-      .padding(20)
-      .frame(minWidth: 480, maxWidth: .infinity, minHeight: 520, maxHeight: .infinity)
-      .foregroundStyle(.primary)
-      .background {
-        RoundedRectangle(cornerRadius: 28, style: .continuous)
-          .fill(Color.black.opacity(ExplanationPanelAppearance.backgroundOpacity(for: colorScheme)))
-      }
-      .glassEffect(.clear, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+    VStack(alignment: .leading, spacing: 12) {
+      header
+      content
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+      footer
     }
+    .padding(18)
+    .frame(minWidth: 900, maxWidth: .infinity, minHeight: 720, maxHeight: .infinity)
+    .foregroundStyle(Color(red: 0.05, green: 0.09, blue: 0.16))
+    .background {
+      RoundedRectangle(cornerRadius: 24, style: .continuous)
+        .fill(Color(red: 0.97, green: 0.985, blue: 1.0))
+        .shadow(color: .black.opacity(0.16), radius: 24, x: 0, y: 14)
+    }
+    .overlay {
+      RoundedRectangle(cornerRadius: 24, style: .continuous)
+        .stroke(Color(red: 0.75, green: 0.82, blue: 0.9), lineWidth: 1)
+    }
+    .environment(\.colorScheme, .light)
   }
 
   @ViewBuilder
@@ -49,9 +45,10 @@ struct ExplanationPanelView: View {
     } else if let document {
       ScrollView {
         LearningExplanationView(document: document)
-          .padding(.vertical, 2)
+          .padding(.vertical, 4)
           .frame(maxWidth: .infinity, alignment: .leading)
       }
+      .scrollContentBackground(.hidden)
       .frame(minHeight: 320)
     } else {
       ProgressView()
@@ -70,9 +67,17 @@ struct ExplanationPanelView: View {
   }
 
   private var header: some View {
-    HStack {
-      Text(capturedText?.mode.displayName ?? "Vocra")
-        .font(.headline)
+    HStack(spacing: 12) {
+      VStack(alignment: .leading, spacing: 3) {
+        Text(capturedText?.mode.displayName ?? "Vocra")
+          .font(.title3.weight(.heavy))
+        if let text = capturedText?.cleanedText, !text.isEmpty {
+          Text(text)
+            .font(.caption.weight(.medium))
+            .foregroundStyle(Color(red: 0.36, green: 0.42, blue: 0.5))
+            .lineLimit(1)
+        }
+      }
 
       Spacer()
 
@@ -86,27 +91,39 @@ struct ExplanationPanelView: View {
       }
       .labelsHidden()
       .pickerStyle(.segmented)
-      .frame(width: 220)
+      .frame(width: 250)
+      .controlSize(.large)
 
       Button {
         onClose()
       } label: {
         Image(systemName: "xmark")
       }
-      .buttonStyle(.glass)
+      .buttonStyle(.bordered)
+      .controlSize(.large)
+    }
+    .padding(.horizontal, 12)
+    .padding(.vertical, 10)
+    .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    .overlay {
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .stroke(Color(red: 0.82, green: 0.87, blue: 0.94), lineWidth: 1)
     }
   }
 
   private var footer: some View {
     HStack {
-      Button("Copy") {
+      Button {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(renderedSummary, forType: .string)
+      } label: {
+        Label("Copy", systemImage: "doc.on.doc")
       }
       .disabled(document == nil)
-      .buttonStyle(.glass)
+      .buttonStyle(.bordered)
 
       Spacer()
     }
+    .padding(.horizontal, 4)
   }
 }

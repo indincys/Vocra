@@ -40,12 +40,12 @@ final class FloatingPanelController: ExplanationPanelPresenting {
     if let panel { return panel }
 
     let panel = EscapeClosingPanel(
-      contentRect: NSRect(x: 0, y: 0, width: 480, height: 520),
+      contentRect: NSRect(x: 0, y: 0, width: 1080, height: 900),
       styleMask: [.borderless, .resizable, .nonactivatingPanel],
       backing: .buffered,
       defer: false
     )
-    panel.minSize = NSSize(width: 480, height: 520)
+    panel.minSize = NSSize(width: 900, height: 720)
     panel.level = .floating
     panel.isOpaque = false
     panel.backgroundColor = .clear

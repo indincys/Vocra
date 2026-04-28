@@ -13,47 +13,7 @@ public struct InMemoryPromptStore: PromptStore {
   }
 
   public static func defaults() -> InMemoryPromptStore {
-    InMemoryPromptStore(templates: [
-      .sentenceAnalysisSchema: PromptTemplate(
-        kind: .sentenceAnalysisSchema,
-        body: """
-        Return a single JSON object for a deep Chinese learning analysis of this English sentence.
-        The object must match LearningExplanationDocument schemaVersion 1.
-        Use mode "sentence".
-        Include sentenceAnalysis with headline, sentence.segments, structureBreakdown, relationshipDiagram, logicSummary, translation, and keyVocabulary.
-        Do not include Markdown fences or prose outside JSON.
-        Text: {{text}}
-        Source app: {{sourceApp}}
-        Created at: {{createdAt}}
-        """
-      ),
-      .wordExplanationSchema: PromptTemplate(
-        kind: .wordExplanationSchema,
-        body: """
-        Return a single JSON object for a deep Chinese explanation of this English {{type}}.
-        The object must match LearningExplanationDocument schemaVersion 1.
-        Use mode "{{type}}" and populate wordExplanation.
-        Include term, pronunciation when useful, partOfSpeech, coreMeaning, contextualMeaning, usageNotes, collocations, examples, and commonMistakes.
-        Do not include Markdown fences or prose outside JSON.
-        Text: {{text}}
-        Source app: {{sourceApp}}
-        Created at: {{createdAt}}
-        """
-      ),
-      .vocabularyCardSchema: PromptTemplate(
-        kind: .vocabularyCardSchema,
-        body: """
-        Return a single JSON object for a structured vocabulary review card.
-        The object must match LearningExplanationDocument schemaVersion 1.
-        Use mode "{{type}}" and populate vocabularyCard.
-        Include front, back, examples, and reviewPrompts.
-        Do not include Markdown fences or prose outside JSON.
-        Text: {{text}}
-        Source app: {{sourceApp}}
-        Created at: {{createdAt}}
-        """
-      )
-    ])
+    InMemoryPromptStore(templates: Dictionary(uniqueKeysWithValues: BundledPromptTemplates.current.map { ($0.kind, $0) }))
   }
 
   public func template(for kind: PromptKind) -> PromptTemplate? {
@@ -114,6 +74,10 @@ public final class UserDefaultsPromptStore: PromptStore, @unchecked Sendable {
         needsMigration = true
         continue
       }
+      if BundledPromptTemplates.isLegacyBundledDefault(kind: kind, body: record.body) {
+        needsMigration = true
+        continue
+      }
       templatesByKind[kind] = PromptTemplate(kind: kind, body: record.body)
     }
 
@@ -133,4 +97,192 @@ public final class UserDefaultsPromptStore: PromptStore, @unchecked Sendable {
 private struct PersistedPromptTemplate: Codable {
   var kind: String
   var body: String
+}
+
+private enum BundledPromptTemplates {
+  static let current: [PromptTemplate] = [
+    PromptTemplate(
+      kind: .sentenceAnalysisSchema,
+      body: """
+      Return a single JSON object for a deep Chinese learning analysis of this English sentence.
+      Use exactly this root shape and JSON value types. Do not replace nested objects with strings.
+
+      Required root shape:
+      {
+        "schemaVersion": 1,
+        "mode": "sentence",
+        "sourceText": "<selected text>",
+        "language": { "source": "en", "explanation": "zh-Hans" },
+        "sentenceAnalysis": {
+          "headline": { "title": "例句解析", "subtitle": "Sentence Analysis" },
+          "sentence": { "text": "<selected sentence>", "segments": [
+            { "id": "main-subject", "text": "<exact sentence span>", "role": "subject", "labelZh": "主语", "labelEn": "Subject", "color": "blue" }
+          ] },
+          "structureBreakdown": {
+            "title": "从句结构解析",
+            "items": [
+              { "id": "main-clause", "text": "<exact sentence span>", "role": "mainClause", "labelZh": "主句", "labelEn": "Main Clause", "children": [] }
+            ]
+          },
+          "relationshipDiagram": {
+            "nodes": [
+              { "id": "main", "title": "主句（主干）", "text": "<main clause>" },
+              { "id": "modifier", "title": "修饰/条件", "text": "<modifier or clause>" }
+            ],
+            "edges": [
+              { "from": "modifier", "to": "main", "labelZh": "在这种情境下", "labelEn": "condition / context" }
+            ]
+          },
+          "logicSummary": { "title": "句子逻辑与核心含义", "points": ["<Chinese explanation point>"], "coreMeaning": "<Chinese core meaning>" },
+          "translation": { "title": "例句翻译", "text": "<Chinese translation>" },
+          "keyVocabulary": [
+            { "term": "<important word or phrase>", "meaning": "<Chinese meaning>", "note": "<Chinese usage note>" }
+          ]
+        },
+        "wordExplanation": null,
+        "vocabularyCard": null,
+        "warnings": []
+      }
+
+      Segment colors must be one of: blue, green, orange, purple, pink, neutral.
+      Every relationshipDiagram edge must include from, to, labelZh, and labelEn.
+      Use 3-8 sentence.segments for diagramDensity full, and 1-4 segments for diagramDensity simple.
+      Text: {{text}}
+      Source app: {{sourceApp}}
+      Created at: {{createdAt}}
+      """
+    ),
+    PromptTemplate(
+      kind: .wordExplanationSchema,
+      body: """
+      Return a single JSON object for a deep Chinese explanation of this English {{type}}.
+      Use exactly this root shape and JSON value types. Do not replace nested objects or arrays with strings.
+
+      Required root shape:
+      {
+        "schemaVersion": 1,
+        "mode": "{{type}}",
+        "sourceText": "<selected text>",
+        "language": { "source": "en", "explanation": "zh-Hans" },
+        "sentenceAnalysis": null,
+        "wordExplanation": {
+          "term": "<selected word or phrase>",
+          "pronunciation": null,
+          "partOfSpeech": "<part of speech or phrase type>",
+          "coreMeaning": "<Chinese core meaning>",
+          "contextualMeaning": "<Chinese contextual meaning>",
+          "usageNotes": ["<Chinese usage note>"],
+          "collocations": ["<common collocation>"],
+          "examples": [
+            { "sentence": "<English example sentence>", "translation": "<Chinese translation>", "note": null }
+          ],
+          "commonMistakes": ["<Chinese common mistake>"]
+        },
+        "vocabularyCard": null,
+        "warnings": []
+      }
+
+      If pronunciation is not useful for a phrase, use null. Keep examples as objects with sentence, translation, and note; note may be null or a non-empty Chinese string.
+      Text: {{text}}
+      Source app: {{sourceApp}}
+      Created at: {{createdAt}}
+      """
+    ),
+    PromptTemplate(
+      kind: .vocabularyCardSchema,
+      body: """
+      Return a single JSON object for a structured vocabulary review card.
+      Use exactly this root shape and JSON value types. Do not replace nested objects or arrays with strings.
+
+      Required root shape:
+      {
+        "schemaVersion": 1,
+        "mode": "{{type}}",
+        "sourceText": "<selected text>",
+        "language": { "source": "en", "explanation": "zh-Hans" },
+        "sentenceAnalysis": null,
+        "wordExplanation": null,
+        "vocabularyCard": {
+          "front": { "text": "<selected word or phrase>", "hint": "<short hint or null>" },
+          "back": {
+            "coreMeaning": "<Chinese core meaning>",
+            "memoryNote": "<Chinese memory note>",
+            "usage": "<Chinese usage explanation>"
+          },
+          "examples": [
+            { "sentence": "<English example sentence>", "translation": "<Chinese translation>" }
+          ],
+          "reviewPrompts": ["<review question>"]
+        },
+        "warnings": []
+      }
+
+      Text: {{text}}
+      Source app: {{sourceApp}}
+      Created at: {{createdAt}}
+      """
+    )
+  ]
+
+  private static let legacyDefaults: [PromptKind: String] = [
+    .sentenceAnalysisSchema: """
+    Return a single JSON object for a deep Chinese learning analysis of this English sentence.
+    The object must match LearningExplanationDocument schemaVersion 1.
+    Use mode "sentence".
+    Include sentenceAnalysis with headline, sentence.segments, structureBreakdown, relationshipDiagram, logicSummary, translation, and keyVocabulary.
+    Do not include Markdown fences or prose outside JSON.
+    Text: {{text}}
+    Source app: {{sourceApp}}
+    Created at: {{createdAt}}
+    """,
+    .wordExplanationSchema: """
+    Return a single JSON object for a deep Chinese explanation of this English {{type}}.
+    The object must match LearningExplanationDocument schemaVersion 1.
+    Use mode "{{type}}" and populate wordExplanation.
+    Include term, pronunciation when useful, partOfSpeech, coreMeaning, contextualMeaning, usageNotes, collocations, examples, and commonMistakes.
+    Do not include Markdown fences or prose outside JSON.
+    Text: {{text}}
+    Source app: {{sourceApp}}
+    Created at: {{createdAt}}
+    """,
+    .vocabularyCardSchema: """
+    Return a single JSON object for a structured vocabulary review card.
+    The object must match LearningExplanationDocument schemaVersion 1.
+    Use mode "{{type}}" and populate vocabularyCard.
+    Include front, back, examples, and reviewPrompts.
+    Do not include Markdown fences or prose outside JSON.
+    Text: {{text}}
+    Source app: {{sourceApp}}
+    Created at: {{createdAt}}
+    """
+  ]
+
+  static func isLegacyBundledDefault(kind: PromptKind, body: String) -> Bool {
+    guard let legacy = legacyDefaults[kind] else { return false }
+    let normalizedBody = normalized(body)
+    if normalizedBody == normalized(legacy) {
+      return true
+    }
+    return isPreviousStructuredBundledDefault(kind: kind, normalizedBody: normalizedBody)
+  }
+
+  private static func normalized(_ body: String) -> String {
+    body
+      .replacingOccurrences(of: "\r\n", with: "\n")
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  private static func isPreviousStructuredBundledDefault(kind: PromptKind, normalizedBody: String) -> Bool {
+    switch kind {
+    case .sentenceAnalysisSchema:
+      normalizedBody.contains("Use exactly this root shape and JSON value types")
+        && normalizedBody.contains(#""sentence": { "text": "<selected sentence>", "segments": ["#)
+        && normalizedBody.contains(#""edges": []"#)
+        && normalizedBody.contains("Segment colors must be one of")
+    case .wordExplanationSchema:
+      false
+    case .vocabularyCardSchema:
+      false
+    }
+  }
 }

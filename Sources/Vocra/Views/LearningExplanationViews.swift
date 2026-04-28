@@ -37,14 +37,18 @@ struct LearningSection<Content: View>: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
       Label(title, systemImage: systemImage)
-        .font(.headline)
+        .font(.headline.weight(.heavy))
         .labelStyle(.titleAndIcon)
 
       content
     }
-    .padding(12)
+    .padding(14)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    .overlay {
+      RoundedRectangle(cornerRadius: 12, style: .continuous)
+        .stroke(Color(red: 0.82, green: 0.87, blue: 0.94), lineWidth: 1)
+    }
   }
 }
 

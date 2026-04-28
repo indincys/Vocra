@@ -22,8 +22,4 @@ final class FloatingPanelControllerTests: XCTestCase {
     XCTAssertTrue(didClose)
   }
 
-  func testExplanationPanelBackgroundOpacityOnlyAppliesInDarkMode() {
-    XCTAssertEqual(ExplanationPanelAppearance.backgroundOpacity(for: .light), 0)
-    XCTAssertGreaterThanOrEqual(ExplanationPanelAppearance.backgroundOpacity(for: .dark), 0.82)
-  }
 }
