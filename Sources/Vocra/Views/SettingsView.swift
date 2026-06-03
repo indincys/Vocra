@@ -698,7 +698,7 @@ private struct ProviderPillStyle: ButtonStyle {
       .padding(.vertical, 6)
       .background {
         if selected {
-          Capsule().fill(VocraTheme.accent).shadow(color: VocraTheme.accent.opacity(0.4), radius: 4, y: 2)
+          Capsule().fill(VocraTheme.accent)
         } else {
           Capsule().fill(VocraTheme.fill)
         }

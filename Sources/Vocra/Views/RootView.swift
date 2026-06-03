@@ -20,10 +20,14 @@ struct RootView: View {
 
       content(cards: cards, metrics: metrics)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .vocraWindowBackground()
+        .background(VisualEffectBlur(material: .windowBackground, blendingMode: .behindWindow))
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .ignoresSafeArea()
+    .background(WindowConfigurator { window in
+      window.isOpaque = false
+      window.backgroundColor = .clear
+    })
     .environment(\.colorScheme, .light)
     .preferredColorScheme(.light)
     .tint(VocraTheme.accent)
@@ -45,7 +49,6 @@ struct RootView: View {
               .font(.system(size: 14, weight: .semibold))
               .foregroundStyle(.white)
           }
-          .shadow(color: VocraTheme.accent.opacity(0.45), radius: 4, y: 2)
         Text("Vocra")
           .font(.system(size: 18, weight: .bold))
           .foregroundStyle(VocraTheme.ink900)
@@ -191,7 +194,6 @@ private struct SidebarNavButton: View {
         if isSelected {
           RoundedRectangle(cornerRadius: 9, style: .continuous)
             .fill(VocraTheme.accent)
-            .shadow(color: VocraTheme.accent.opacity(0.45), radius: 4, y: 2)
         } else if hovering {
           RoundedRectangle(cornerRadius: 9, style: .continuous).fill(VocraTheme.fill)
         }

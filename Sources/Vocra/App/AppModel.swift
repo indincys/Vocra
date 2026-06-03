@@ -313,14 +313,7 @@ final class AppModel {
       aiClient: client,
       preferences: settingsStore.loadLearningPreferences()
     )
-    let document = try await service.explain(
-      captured: captured,
-      template: template,
-      onPartial: { [weak self] raw in
-        let preview = extractStreamingPreview(from: raw)
-        Task { @MainActor in self?.panelPresenter.updateStreamingPreview(preview) }
-      }
-    )
+    let document = try await service.explain(captured: captured, template: template)
     explanationCache.store(document, text: captured.cleanedText, mode: captured.mode, model: configuration.model)
     return document
   }
@@ -391,49 +384,6 @@ final class AppModel {
       .appending(path: folderName, directoryHint: .isDirectory)
       .appending(path: "ExplanationCache", directoryHint: .isDirectory)
   }
-}
-
-/// Extracts a readable tail from streaming JSON by concatenating its string
-/// *values* (skipping keys), so the loading HUD can show content as it streams.
-func extractStreamingPreview(from raw: String, maxLength: Int = 80) -> String {
-  var values: [String] = []
-  var current = ""
-  var inString = false
-  var escaped = false
-  let characters = Array(raw)
-  var index = 0
-  while index < characters.count {
-    let character = characters[index]
-    if inString {
-      if escaped {
-        current.append(character)
-        escaped = false
-      } else if character == "\\" {
-        escaped = true
-      } else if character == "\"" {
-        var lookahead = index + 1
-        while lookahead < characters.count, characters[lookahead] == " " || characters[lookahead] == "\n" || characters[lookahead] == "\t" {
-          lookahead += 1
-        }
-        let isKey = lookahead < characters.count && characters[lookahead] == ":"
-        if !isKey, !current.isEmpty { values.append(current) }
-        current = ""
-        inString = false
-      } else {
-        current.append(character)
-      }
-    } else if character == "\"" {
-      inString = true
-      current = ""
-    }
-    index += 1
-  }
-  if inString, !current.isEmpty { values.append(current) }
-
-  let joined = values.joined(separator: "  ").replacingOccurrences(of: "\n", with: " ")
-  let trimmed = joined.trimmingCharacters(in: .whitespaces)
-  if trimmed.count <= maxLength { return trimmed }
-  return "…" + String(trimmed.suffix(maxLength))
 }
 
 private func elapsedMilliseconds(from start: ContinuousClock.Instant, clock: ContinuousClock) -> Int64 {

@@ -22,6 +22,26 @@ struct VisualEffectBlur: NSViewRepresentable {
   }
 }
 
+/// Reaches the hosting `NSWindow` to configure it (e.g. make it translucent so
+/// behind-window materials frost the desktop).
+struct WindowConfigurator: NSViewRepresentable {
+  let configure: (NSWindow) -> Void
+
+  func makeNSView(context: Context) -> NSView {
+    let view = NSView()
+    DispatchQueue.main.async { [weak view] in
+      if let window = view?.window { configure(window) }
+    }
+    return view
+  }
+
+  func updateNSView(_ nsView: NSView, context: Context) {
+    DispatchQueue.main.async { [weak nsView] in
+      if let window = nsView?.window { configure(window) }
+    }
+  }
+}
+
 extension View {
   /// Refined macOS Liquid Glass for floating windows: behind-window vibrancy +
   /// a frosted top-lit sheen, a crisp gradient edge, and layered depth shadows.
@@ -37,10 +57,11 @@ private struct VocraFloatingGlass: ViewModifier {
     let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
     content
       .background {
-        // Frosted, top-lit sheen sitting over the live blur.
+        // Light top-lit sheen over the live blur — kept subtle so the glass
+        // stays clearly see-through.
         shape.fill(
           LinearGradient(
-            colors: [Color.white.opacity(0.42), Color.white.opacity(0.16), Color.white.opacity(0.10)],
+            colors: [Color.white.opacity(0.22), Color.white.opacity(0.06), Color.white.opacity(0.02)],
             startPoint: .top,
             endPoint: .bottom
           )

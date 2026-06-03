@@ -54,7 +54,7 @@ struct CardDetailSheet: View {
       .scrollContentBackground(.hidden)
     }
     .frame(width: 640, height: 660)
-    .vocraWindowBackground()
+    .background(.regularMaterial)
     .environment(\.colorScheme, .light)
   }
 }

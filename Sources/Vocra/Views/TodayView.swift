@@ -107,18 +107,20 @@ struct TodayView: View {
     .background {
       let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
       ZStack {
-        shape.fill(Color.white.opacity(0.85))
+        shape.fill(.regularMaterial)
         shape.fill(LinearGradient(
-          colors: [Color(oklch: 0.62, 0.17, 255, opacity: 0.16), Color(oklch: 0.62, 0.15, 305, opacity: 0.12)],
+          colors: [Color(oklch: 0.62, 0.17, 255, opacity: 0.20), Color(oklch: 0.62, 0.15, 305, opacity: 0.15)],
           startPoint: .topLeading,
           endPoint: .bottomTrailing
         ))
       }
     }
     .overlay {
-      RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Color.white.opacity(0.6), lineWidth: 1)
+      RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Color.white.opacity(0.5), lineWidth: 1)
     }
-    .shadow(color: VocraTheme.shadow.opacity(0.12), radius: 7, x: 0, y: 3)
+    .overlay {
+      RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(VocraTheme.hairline, lineWidth: 1)
+    }
   }
 
   private var statTiles: some View {
@@ -237,7 +239,6 @@ struct VocraAccentButtonStyle: ButtonStyle {
         LinearGradient(colors: [VocraTheme.accent, VocraTheme.accentStrong], startPoint: .top, endPoint: .bottom),
         in: Capsule(style: .continuous)
       )
-      .shadow(color: VocraTheme.accent.opacity(0.4), radius: 5, y: 2)
       .scaleEffect(configuration.isPressed ? 0.96 : 1)
       .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
   }

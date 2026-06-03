@@ -127,17 +127,6 @@ extension View {
   func vocraGlassPanel(cornerRadius: CGFloat = 22) -> some View {
     modifier(VocraGlassPanelModifier(cornerRadius: cornerRadius))
   }
-
-  func vocraWindowBackground() -> some View {
-    background {
-      LinearGradient(
-        colors: [VocraTheme.bg0, VocraTheme.bg1],
-        startPoint: .top,
-        endPoint: .bottom
-      )
-      .ignoresSafeArea()
-    }
-  }
 }
 
 private struct VocraCardModifier: ViewModifier {
@@ -151,27 +140,27 @@ private struct VocraCardModifier: ViewModifier {
       .padding(padding.map { EdgeInsets(top: $0, leading: $0, bottom: $0, trailing: $0) } ?? EdgeInsets())
       .background {
         ZStack {
-          shape.fill(Color.white.opacity(0.92))
+          shape.fill(.regularMaterial)
+          shape.fill(Color.white.opacity(0.18))
           if let tint {
             shape.fill(tint)
           }
           shape.fill(
             LinearGradient(
-              colors: [Color.white.opacity(0.55), Color.white.opacity(0.02)],
-              startPoint: .topLeading,
-              endPoint: .bottomTrailing
+              colors: [Color.white.opacity(0.35), Color.white.opacity(0.02)],
+              startPoint: .top,
+              endPoint: .bottom
             )
           )
           .blendMode(.softLight)
         }
       }
       .overlay {
-        shape.strokeBorder(Color.white.opacity(0.7), lineWidth: 1)
+        shape.strokeBorder(Color.white.opacity(0.55), lineWidth: 1)
       }
       .overlay {
         shape.strokeBorder(VocraTheme.hairline, lineWidth: 1)
       }
-      .shadow(color: VocraTheme.shadow.opacity(0.10), radius: 5, x: 0, y: 2)
   }
 }
 
@@ -197,8 +186,6 @@ private struct VocraGlassPanelModifier: ViewModifier {
         shape.strokeBorder(Color.white.opacity(0.55), lineWidth: 1)
       }
       .clipShape(shape)
-      .shadow(color: VocraTheme.shadow.opacity(0.34), radius: 25, x: 0, y: 18)
-      .shadow(color: VocraTheme.shadow.opacity(0.18), radius: 6, x: 0, y: 4)
   }
 }
 
@@ -370,7 +357,6 @@ struct VocraSegmented<Value: Hashable>: View {
               if selected {
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
                   .fill(Color.white)
-                  .shadow(color: .black.opacity(0.12), radius: 1.5, y: 1)
               }
             }
         }

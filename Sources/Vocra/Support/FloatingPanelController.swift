@@ -10,7 +10,7 @@ final class FloatingPanelController: ExplanationPanelPresenting {
   private var globalEscapeMonitor: Any?
   private let progress = LookupProgress()
   private var isShowingHUD = false
-  private var resultFrame: NSRect?
+  private static let resultSize = CGSize(width: 540, height: 660)
 
   func show(
     content: ExplanationPanelContent,
@@ -37,10 +37,6 @@ final class FloatingPanelController: ExplanationPanelPresenting {
     }
   }
 
-  func updateStreamingPreview(_ text: String) {
-    progress.preview = text
-  }
-
   func close() {
     panel?.orderOut(nil)
   }
@@ -51,11 +47,9 @@ final class FloatingPanelController: ExplanationPanelPresenting {
     let panel = existingOrCreatePanel()
     progress.reset(term: term, mode: mode)
     if !isShowingHUD {
-      // Remember where the full result should appear, then shrink to the HUD.
-      resultFrame = panel.frame
       isShowingHUD = true
       panel.contentView = NSHostingView(rootView: LookupHUDView(progress: progress))
-      panel.setFrame(hudFrame(centeredOn: panel.frame), display: true, animate: false)
+      panel.setFrame(bottomRightFrame(size: LookupHUDView.size), display: true, animate: false)
     }
     panel.orderFrontRegardless()
   }
@@ -65,19 +59,22 @@ final class FloatingPanelController: ExplanationPanelPresenting {
     panel.contentView = NSHostingView(rootView: rootView)
     if isShowingHUD {
       isShowingHUD = false
-      let target = resultFrame ?? panel.frame
-      panel.setFrame(target, display: true, animate: true)
+      // Grow up-and-left from the HUD's bottom-right corner into the result.
+      panel.setFrame(bottomRightFrame(size: Self.resultSize), display: true, animate: true)
     }
     // Float above the frontmost app WITHOUT activating Vocra or taking key
     // focus, so the user can keep working. Dismiss via the global Esc monitor.
     panel.orderFrontRegardless()
   }
 
-  private func hudFrame(centeredOn frame: NSRect) -> NSRect {
-    let size = LookupHUDView.size
+  /// Anchors a window of the given size to the bottom-right of the active screen.
+  private func bottomRightFrame(size: CGSize) -> NSRect {
+    let visible = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame
+      ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+    let margin: CGFloat = 22
     return NSRect(
-      x: frame.midX - size.width / 2,
-      y: frame.midY - size.height / 2,
+      x: visible.maxX - size.width - margin,
+      y: visible.minY + margin,
       width: size.width,
       height: size.height
     )
