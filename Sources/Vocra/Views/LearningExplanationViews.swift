@@ -3,10 +3,11 @@ import VocraCore
 
 struct LearningExplanationView: View {
   let document: LearningExplanationDocument
+  var onSaveVocabulary: VocabularySaveAction? = nil
 
   var body: some View {
     if document.mode == .sentence, let analysis = document.sentenceAnalysis {
-      SentenceLearningView(analysis: analysis)
+      SentenceLearningView(analysis: analysis, onSaveVocabulary: onSaveVocabulary)
     } else if (document.mode == .word || document.mode == .phrase), let explanation = document.wordExplanation {
       WordLearningView(explanation: explanation)
     } else if let vocabularyCard = document.vocabularyCard,
@@ -48,25 +49,6 @@ struct LearningSection<Content: View>: View {
     .overlay {
       RoundedRectangle(cornerRadius: 12, style: .continuous)
         .stroke(Color(red: 0.82, green: 0.87, blue: 0.94), lineWidth: 1)
-    }
-  }
-}
-
-extension LearningColorToken {
-  var swiftUIColor: Color {
-    switch self {
-    case .blue:
-      .blue
-    case .green:
-      .green
-    case .orange:
-      .orange
-    case .purple:
-      .purple
-    case .pink:
-      .pink
-    case .neutral:
-      .secondary
     }
   }
 }

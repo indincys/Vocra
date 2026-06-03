@@ -256,6 +256,27 @@ final class AppModelTests: XCTestCase {
     XCTAssertTrue(try repository.allCards().isEmpty)
   }
 
+  func testAddVocabularyEntryStoresTermInRepository() throws {
+    let repository = try SQLiteVocabularyRepository.inMemory()
+    let model = AppModel(
+      selectionReader: StubSelectionReader(selection: CapturedTextSelection(text: "x", sourceApp: "Tests")),
+      vocabularyRepository: repository,
+      panelPresenter: RecordingPanelPresenter()
+    )
+
+    model.addVocabularyEntry(
+      text: "middleware",
+      type: .word,
+      document: testVocabularyCardDocument(text: "middleware", mode: .word)
+    )
+
+    let cards = try repository.allCards()
+    XCTAssertEqual(cards.map(\.text), ["middleware"])
+    XCTAssertEqual(cards.first?.type, .word)
+    let stored = try JSONDecoder().decode(LearningExplanationDocument.self, from: Data(XCTUnwrap(cards.first).cardJSON.utf8))
+    XCTAssertEqual(stored.vocabularyCard?.front.text, "middleware")
+  }
+
   func testStartStoresShortcutRegistrationFailureMessage() throws {
     let shortcutService = StubShortcutService(registrationResult: .failed(.registerHotKey(-9878)))
     let model = try AppModel(
@@ -333,6 +354,7 @@ private final class RecordingPanelPresenter: ExplanationPanelPresenting {
   func show(
     content: ExplanationPanelContent,
     onSwitchMode: @escaping (ExplanationMode) -> Void,
+    onSaveVocabulary: @escaping VocabularySaveAction,
     onClose: @escaping () -> Void
   ) {
     contents.append(content)

@@ -8,11 +8,12 @@ final class FloatingPanelController: ExplanationPanelPresenting {
   private var panel: NSPanel?
   private var localEscapeMonitor: Any?
   private var globalEscapeMonitor: Any?
-  private let autosaveName = "VocraExplanationPanelFrame"
+  private let autosaveName = "VocraExplanationPanelFrameV2"
 
   func show(
     content: ExplanationPanelContent,
     onSwitchMode: @escaping (ExplanationMode) -> Void,
+    onSaveVocabulary: @escaping VocabularySaveAction,
     onClose: @escaping () -> Void
   ) {
     present(rootView: ExplanationPanelView(
@@ -21,6 +22,7 @@ final class FloatingPanelController: ExplanationPanelPresenting {
       errorMessage: content.errorMessage,
       validationErrorMessage: content.validationErrorMessage,
       onSwitchMode: onSwitchMode,
+      onSaveVocabulary: onSaveVocabulary,
       onClose: onClose
     ))
   }
@@ -40,15 +42,16 @@ final class FloatingPanelController: ExplanationPanelPresenting {
     if let panel { return panel }
 
     let panel = EscapeClosingPanel(
-      contentRect: NSRect(x: 0, y: 0, width: 1080, height: 900),
+      contentRect: NSRect(x: 0, y: 0, width: 560, height: 660),
       styleMask: [.borderless, .resizable, .nonactivatingPanel],
       backing: .buffered,
       defer: false
     )
-    panel.minSize = NSSize(width: 900, height: 720)
+    panel.minSize = NSSize(width: 440, height: 460)
     panel.level = .floating
     panel.isOpaque = false
     panel.backgroundColor = .clear
+    panel.appearance = NSAppearance(named: .aqua)
     panel.hasShadow = true
     panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
     panel.isMovableByWindowBackground = true

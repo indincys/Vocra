@@ -8,6 +8,25 @@ private let aiClientLogger = Logger(
 
 public protocol HTTPClient: Sendable {
   func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse)
+  /// Streams an HTTP response line-by-line. Streaming keeps the connection
+  /// active so `URLRequest.timeoutInterval` (an *idle* timeout) doesn't trip
+  /// during a long single-shot model generation.
+  func lines(for request: URLRequest) async throws -> (AsyncThrowingStream<String, Error>, HTTPURLResponse)
+}
+
+public extension HTTPClient {
+  /// Default: fall back to a buffered request and emit the whole body as one
+  /// chunk. Keeps non-streaming clients (tests, connectivity checks) working
+  /// and gracefully handles providers that ignore `stream`.
+  func lines(for request: URLRequest) async throws -> (AsyncThrowingStream<String, Error>, HTTPURLResponse) {
+    let (data, response) = try await data(for: request)
+    let body = String(decoding: data, as: UTF8.self)
+    let stream = AsyncThrowingStream<String, Error> { continuation in
+      continuation.yield(body)
+      continuation.finish()
+    }
+    return (stream, response)
+  }
 }
 
 extension URLSession: HTTPClient {
@@ -17,6 +36,27 @@ extension URLSession: HTTPClient {
       throw AIClientError.invalidResponse
     }
     return (data, httpResponse)
+  }
+
+  public func lines(for request: URLRequest) async throws -> (AsyncThrowingStream<String, Error>, HTTPURLResponse) {
+    let (bytes, response) = try await bytes(for: request, delegate: nil)
+    guard let httpResponse = response as? HTTPURLResponse else {
+      throw AIClientError.invalidResponse
+    }
+    let stream = AsyncThrowingStream<String, Error> { continuation in
+      let task = Task {
+        do {
+          for try await line in bytes.lines {
+            continuation.yield(line)
+          }
+          continuation.finish()
+        } catch {
+          continuation.finish(throwing: error)
+        }
+      }
+      continuation.onTermination = { _ in task.cancel() }
+    }
+    return (stream, httpResponse)
   }
 }
 
@@ -51,39 +91,76 @@ public struct OpenAICompatibleClient: AIClient {
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
     request.httpBody = try JSONEncoder().encode(ChatCompletionRequest(
       model: configuration.model,
-      messages: [
-        RequestMessage(role: "user", content: prompt)
-      ]
+      messages: [RequestMessage(role: "user", content: prompt)],
+      stream: true
     ))
 
     aiClientLogger.info(
       "AI request started; model: \(configuration.model, privacy: .public); endpoint: \(request.url?.absoluteString ?? "Unknown URL", privacy: .public); prompt characters: \(prompt.count, privacy: .public)."
     )
-    let data: Data
+
+    let lines: AsyncThrowingStream<String, Error>
     let response: HTTPURLResponse
     do {
-      (data, response) = try await httpClient.data(for: request)
+      (lines, response) = try await httpClient.lines(for: request)
     } catch {
       aiClientLogger.error(
         "AI request failed after \(aiElapsedMilliseconds(from: requestStart, clock: clock), privacy: .public) ms: \(String(describing: error), privacy: .public)"
       )
       throw error
     }
-    aiClientLogger.info(
-      "AI response received in \(aiElapsedMilliseconds(from: requestStart, clock: clock), privacy: .public) ms; status: \(response.statusCode, privacy: .public); bytes: \(data.count, privacy: .public)."
-    )
+
     guard (200..<300).contains(response.statusCode) else {
       aiClientLogger.error("AI response returned non-success status: \(response.statusCode, privacy: .public).")
       throw AIClientError.httpStatus(response.statusCode)
     }
 
+    var aggregated = ""
+    var sawStreamedDelta = false
+    var bufferedBody = ""
     do {
-      let completion = try JSONDecoder().decode(ChatCompletionResponse.self, from: data)
+      for try await line in lines {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { continue }
+        if trimmed.hasPrefix("data:") {
+          let payload = trimmed.dropFirst("data:".count).trimmingCharacters(in: .whitespaces)
+          if payload == "[DONE]" { break }
+          if let chunk = payload.data(using: .utf8),
+             let decoded = try? JSONDecoder().decode(StreamChunk.self, from: chunk),
+             let piece = decoded.choices.first?.delta?.content {
+            aggregated += piece
+            sawStreamedDelta = true
+          }
+        } else {
+          bufferedBody += line
+        }
+      }
+    } catch {
+      aiClientLogger.error(
+        "AI response stream failed after \(aiElapsedMilliseconds(from: requestStart, clock: clock), privacy: .public) ms: \(String(describing: error), privacy: .public)"
+      )
+      throw error
+    }
+
+    aiClientLogger.info(
+      "AI response received in \(aiElapsedMilliseconds(from: requestStart, clock: clock), privacy: .public) ms; status: \(response.statusCode, privacy: .public); streamed: \(sawStreamedDelta, privacy: .public)."
+    )
+
+    if sawStreamedDelta {
+      guard !aggregated.isEmpty else {
+        aiClientLogger.error("AI streamed response had empty content.")
+        throw AIClientError.emptyContent
+      }
+      return aggregated
+    }
+
+    // Fallback: provider returned a buffered (non-streamed) chat completion.
+    do {
+      let completion = try JSONDecoder().decode(ChatCompletionResponse.self, from: Data(bufferedBody.utf8))
       guard let content = completion.choices.first?.message.content, !content.isEmpty else {
         aiClientLogger.error("AI response decoded with empty content.")
         throw AIClientError.emptyContent
       }
-      aiClientLogger.info("AI response decoded; content characters: \(content.count, privacy: .public).")
       return content
     } catch let error as AIClientError {
       throw error
@@ -102,6 +179,7 @@ private func aiElapsedMilliseconds(from start: ContinuousClock.Instant, clock: C
 private struct ChatCompletionRequest: Encodable {
   let model: String
   let messages: [RequestMessage]
+  let stream: Bool
 }
 
 private struct RequestMessage: Encodable {
@@ -118,5 +196,17 @@ private struct Choice: Decodable {
 }
 
 private struct ResponseMessage: Decodable {
+  let content: String?
+}
+
+private struct StreamChunk: Decodable {
+  let choices: [StreamChoice]
+}
+
+private struct StreamChoice: Decodable {
+  let delta: StreamDelta?
+}
+
+private struct StreamDelta: Decodable {
   let content: String?
 }

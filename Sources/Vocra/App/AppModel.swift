@@ -248,9 +248,36 @@ final class AppModel {
     vocabularyRevision += 1
   }
 
+  /// Saves a term (the looked-up word, or a key term from a sentence parse) to
+  /// the vocabulary book, deduplicating by normalized text.
+  func addVocabularyEntry(text: String, type: VocabularyType, document: LearningExplanationDocument) {
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty,
+          let cardData = try? JSONEncoder().encode(document),
+          let cardJSON = String(data: cardData, encoding: .utf8)
+    else { return }
+    do {
+      _ = try vocabularyRepository.upsert(
+        text: trimmed,
+        type: type,
+        cardJSON: cardJSON,
+        sourceApp: latestCapturedText?.sourceApp,
+        now: Date()
+      )
+      vocabularyRevision += 1
+    } catch {
+      shortcutFlowLogger.error("Manual vocabulary save failed: \(String(describing: error), privacy: .public)")
+    }
+  }
+
   var allVocabularyCards: [VocabularyCard] {
     _ = vocabularyRevision
     return (try? vocabularyRepository.allCards()) ?? []
+  }
+
+  var dashboardMetrics: DashboardMetrics {
+    _ = vocabularyRevision
+    return DashboardMetrics(cards: allVocabularyCards)
   }
 
   private func explain(_ captured: CapturedText) async throws -> LearningExplanationDocument {
@@ -308,6 +335,9 @@ final class AppModel {
         Task { @MainActor in
           await self?.explainWithMode(mode)
         }
+      },
+      onSaveVocabulary: { [weak self] text, type, document in
+        self?.addVocabularyEntry(text: text, type: type, document: document)
       },
       onClose: { [weak self] in
         self?.panelPresenter.close()

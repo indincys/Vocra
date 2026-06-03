@@ -24,30 +24,30 @@ struct VocraApp: App {
         Divider()
       }
 
-      Button("Explain Selection") {
+      Button("查词解析") {
         Task { await appModel.handleShortcut() }
       }
       .keyboardShortcut("e")
 
-      Button(appModel.isShortcutPaused ? "Resume Shortcut" : "Pause Shortcut") {
+      Button(appModel.isShortcutPaused ? "恢复划词监听" : "暂停划词监听") {
         appModel.pauseShortcutListening(!appModel.isShortcutPaused)
       }
 
-      Button("Check for Updates...") {
+      Button("检查更新…") {
         appModel.appUpdater.checkForUpdates()
       }
       .disabled(!appModel.appUpdater.isEnabled)
 
       Divider()
 
-      Button("Open \(appName)") {
+      Button("打开 \(appName)") {
         openWindow(id: "main")
         NSApp.activate(ignoringOtherApps: true)
       }
 
       Divider()
 
-      Button("Quit Vocra") {
+      Button("退出 Vocra") {
         NSApp.terminate(nil)
       }
       .keyboardShortcut("q")
@@ -70,6 +70,7 @@ struct VocraApp: App {
       RootView(appModel: appModel)
         .frame(minWidth: 900, minHeight: 620)
     }
+    .windowStyle(.hiddenTitleBar)
     .defaultLaunchBehavior(.suppressed)
     .restorationBehavior(.disabled)
   }
