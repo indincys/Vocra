@@ -215,9 +215,15 @@ private struct SegmentChunk: View {
   }
 }
 
-/// Hover bubble: colored role badge + the chunk text + a one-line grammar note.
+/// Hover bubble: colored role badge + the chunk text + a sentence-specific note
+/// (falls back to a generic role description when the model didn't provide one).
 private struct SegmentTooltip: View {
   let segment: SentenceSegment
+
+  private var note: String {
+    let trimmed = segment.note.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? roleGrammarNote(for: segment) : trimmed
+  }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 7) {
@@ -231,9 +237,9 @@ private struct SegmentTooltip: View {
         Text(segment.text)
           .font(.system(size: 12, weight: .semibold))
           .foregroundStyle(VocraTheme.ink700)
-          .lineLimit(1)
+          .lineLimit(2)
       }
-      Text(roleGrammarNote(for: segment))
+      Text(note)
         .font(.system(size: 12.5))
         .foregroundStyle(VocraTheme.ink700)
         .lineSpacing(2)
@@ -241,7 +247,7 @@ private struct SegmentTooltip: View {
     }
     .padding(.horizontal, 13)
     .padding(.vertical, 11)
-    .frame(width: 248)
+    .frame(width: 268)
   }
 }
 

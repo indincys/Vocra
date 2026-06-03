@@ -100,6 +100,38 @@ final class LearningExplanationDocumentTests: XCTestCase {
     XCTAssertEqual(document.sentenceAnalysis?.sentence.segments.first?.color, .neutral)
   }
 
+  func testDecodesSentenceSegmentNoteWhenPresentAndDefaultsToEmptyWhenMissing() throws {
+    let json = """
+    {
+      "schemaVersion": 1,
+      "mode": "sentence",
+      "sourceText": "Codex works best when configured.",
+      "language": { "source": "en", "explanation": "zh-Hans" },
+      "sentenceAnalysis": {
+        "headline": { "title": "例句解析", "subtitle": "Sentence Analysis" },
+        "sentence": { "text": "Codex works best when configured.", "segments": [
+          { "id": "s1", "text": "when configured", "role": "adverbial", "labelZh": "状语", "labelEn": "Adverbial", "color": "orange", "note": "when 在这里引出条件状语从句，说明只有配置好时才成立。" },
+          { "id": "s2", "text": "Codex", "role": "subject", "labelZh": "主语", "labelEn": "Subject", "color": "blue" }
+        ] },
+        "structureBreakdown": { "title": "结构解析", "items": [] },
+        "relationshipDiagram": { "nodes": [], "edges": [] },
+        "logicSummary": { "title": "核心含义", "points": ["条件从句说明前提。"], "coreMeaning": "配置好时效果最好。" },
+        "translation": { "title": "例句翻译", "text": "配置好时，Codex 效果最好。" },
+        "keyVocabulary": []
+      },
+      "wordExplanation": null,
+      "vocabularyCard": null,
+      "warnings": []
+    }
+    """
+
+    let document = try JSONDecoder().decode(LearningExplanationDocument.self, from: Data(json.utf8))
+    let segments = try XCTUnwrap(document.sentenceAnalysis?.sentence.segments)
+
+    XCTAssertEqual(segments.first?.note, "when 在这里引出条件状语从句，说明只有配置好时才成立。")
+    XCTAssertEqual(segments.last?.note, "")
+  }
+
   func testDecodesPhraseDocumentUsingWordExplanationBranch() throws {
     let json = """
     {

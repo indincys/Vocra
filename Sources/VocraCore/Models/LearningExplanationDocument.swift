@@ -174,6 +174,9 @@ public struct SentenceSegment: Codable, Equatable, Sendable, Identifiable {
   public var labelZh: String
   public var labelEn: String
   public var color: LearningColorToken
+  /// Sentence-specific grammar note for this exact span (what it modifies /
+  /// introduces / connects, and its meaning here). Optional in the JSON.
+  public var note: String
 
   public init(
     id: String,
@@ -181,7 +184,8 @@ public struct SentenceSegment: Codable, Equatable, Sendable, Identifiable {
     role: String,
     labelZh: String,
     labelEn: String,
-    color: LearningColorToken
+    color: LearningColorToken,
+    note: String = ""
   ) {
     self.id = id
     self.text = text
@@ -189,6 +193,22 @@ public struct SentenceSegment: Codable, Equatable, Sendable, Identifiable {
     self.labelZh = labelZh
     self.labelEn = labelEn
     self.color = color
+    self.note = note
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case id, text, role, labelZh, labelEn, color, note
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    id = try container.decode(String.self, forKey: .id)
+    text = try container.decode(String.self, forKey: .text)
+    role = try container.decode(String.self, forKey: .role)
+    labelZh = try container.decode(String.self, forKey: .labelZh)
+    labelEn = try container.decode(String.self, forKey: .labelEn)
+    color = try container.decode(LearningColorToken.self, forKey: .color)
+    note = (try container.decodeIfPresent(String.self, forKey: .note)) ?? ""
   }
 }
 

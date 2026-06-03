@@ -116,7 +116,7 @@ private enum BundledPromptTemplates {
         "sentenceAnalysis": {
           "headline": { "title": "例句解析", "subtitle": "Sentence Analysis" },
           "sentence": { "text": "<selected sentence>", "segments": [
-            { "id": "main-subject", "text": "<exact sentence span>", "role": "subject", "labelZh": "主语", "labelEn": "Subject", "color": "blue" }
+            { "id": "main-subject", "text": "<exact sentence span>", "role": "subject", "labelZh": "主语", "labelEn": "Subject", "color": "blue", "note": "<这一成分在本句中的具体作用：它修饰/引出/连接了什么，以及在这句话里的含义>" }
           ] },
           "structureBreakdown": {
             "title": "从句结构解析",
@@ -145,6 +145,7 @@ private enum BundledPromptTemplates {
       }
 
       Segment colors must be one of: blue, green, orange, purple, pink, neutral.
+      Every sentence.segments item MUST include a "note": a concise Chinese explanation of that exact span's role IN THIS sentence — what it modifies, introduces, connects, or contrasts, and what it means here. Be specific to this sentence and teach it like a tutor; do NOT give a generic textbook definition of the grammatical role. For example "before 在这里引出时间状语从句，说明拦截发生在请求到达控制器之前" rather than "状语用来修饰动词".
       Every relationshipDiagram edge must include from, to, labelZh, and labelEn.
       Use 3-8 sentence.segments for diagramDensity full, and 1-4 segments for diagramDensity simple.
       Text: {{text}}
@@ -275,10 +276,12 @@ private enum BundledPromptTemplates {
   private static func isPreviousStructuredBundledDefault(kind: PromptKind, normalizedBody: String) -> Bool {
     switch kind {
     case .sentenceAnalysisSchema:
+      // Matches any earlier Vocra-bundled structured sentence default that
+      // predates the per-segment "note" field, so unedited users upgrade.
       normalizedBody.contains("Use exactly this root shape and JSON value types")
         && normalizedBody.contains(#""sentence": { "text": "<selected sentence>", "segments": ["#)
-        && normalizedBody.contains(#""edges": []"#)
         && normalizedBody.contains("Segment colors must be one of")
+        && !normalizedBody.contains("这一成分在本句中的具体作用")
     case .wordExplanationSchema:
       false
     case .vocabularyCardSchema:

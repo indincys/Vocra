@@ -19,6 +19,13 @@ final class PromptStoreTests: XCTestCase {
     XCTAssertTrue(prompt.contains(#""vocabularyCard": null"#))
   }
 
+  func testDefaultSentencePromptRequestsSentenceSpecificSegmentNotes() throws {
+    let prompt = try XCTUnwrap(InMemoryPromptStore.defaults().template(for: .sentenceAnalysisSchema)?.body)
+
+    XCTAssertTrue(prompt.contains(#""note""#))
+    XCTAssertTrue(prompt.contains("这一成分在本句中的具体作用"))
+  }
+
   func testUserDefaultsPromptStorePersistsCustomPrompt() {
     let suiteName = "PromptStoreTests-\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suiteName)!

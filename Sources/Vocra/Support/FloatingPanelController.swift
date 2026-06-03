@@ -30,8 +30,10 @@ final class FloatingPanelController: ExplanationPanelPresenting {
   private func present<Content: View>(rootView: Content) {
     let panel = existingOrCreatePanel()
     panel.contentView = NSHostingView(rootView: rootView)
-    panel.makeKeyAndOrderFront(nil)
-    NSApp.activate(ignoringOtherApps: true)
+    // Float above the frontmost app WITHOUT activating Vocra or taking key
+    // focus, so the user can keep working while the lookup loads. The panel is
+    // a non-activating panel and is dismissable via the global Esc monitor.
+    panel.orderFrontRegardless()
   }
 
   func close() {
