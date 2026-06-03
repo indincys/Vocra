@@ -18,5 +18,11 @@ protocol ExplanationPanelPresenting: AnyObject {
     onSaveVocabulary: @escaping VocabularySaveAction,
     onClose: @escaping () -> Void
   )
+  /// Live preview text streamed from the model while a lookup is loading.
+  func updateStreamingPreview(_ text: String)
   func close()
+}
+
+extension ExplanationPanelPresenting {
+  func updateStreamingPreview(_ text: String) {}
 }

@@ -8,7 +8,9 @@ final class FloatingPanelController: ExplanationPanelPresenting {
   private var panel: NSPanel?
   private var localEscapeMonitor: Any?
   private var globalEscapeMonitor: Any?
-  private let autosaveName = "VocraExplanationPanelFrameV2"
+  private let progress = LookupProgress()
+  private var isShowingHUD = false
+  private var resultFrame: NSRect?
 
   func show(
     content: ExplanationPanelContent,
@@ -16,28 +18,69 @@ final class FloatingPanelController: ExplanationPanelPresenting {
     onSaveVocabulary: @escaping VocabularySaveAction,
     onClose: @escaping () -> Void
   ) {
-    present(rootView: ExplanationPanelView(
-      capturedText: content.capturedText,
-      document: content.document,
-      errorMessage: content.errorMessage,
-      validationErrorMessage: content.validationErrorMessage,
-      onSwitchMode: onSwitchMode,
-      onSaveVocabulary: onSaveVocabulary,
-      onClose: onClose
-    ))
+    let isLoading = content.document == nil && content.errorMessage == nil && content.validationErrorMessage == nil
+    if isLoading {
+      presentLoadingHUD(
+        term: content.capturedText?.cleanedText ?? "",
+        mode: content.capturedText?.mode ?? .word
+      )
+    } else {
+      presentResult(rootView: ExplanationPanelView(
+        capturedText: content.capturedText,
+        document: content.document,
+        errorMessage: content.errorMessage,
+        validationErrorMessage: content.validationErrorMessage,
+        onSwitchMode: onSwitchMode,
+        onSaveVocabulary: onSaveVocabulary,
+        onClose: onClose
+      ))
+    }
   }
 
-  private func present<Content: View>(rootView: Content) {
-    let panel = existingOrCreatePanel()
-    panel.contentView = NSHostingView(rootView: rootView)
-    // Float above the frontmost app WITHOUT activating Vocra or taking key
-    // focus, so the user can keep working while the lookup loads. The panel is
-    // a non-activating panel and is dismissable via the global Esc monitor.
-    panel.orderFrontRegardless()
+  func updateStreamingPreview(_ text: String) {
+    progress.preview = text
   }
 
   func close() {
     panel?.orderOut(nil)
+  }
+
+  // MARK: Presentation
+
+  private func presentLoadingHUD(term: String, mode: ExplanationMode) {
+    let panel = existingOrCreatePanel()
+    progress.reset(term: term, mode: mode)
+    if !isShowingHUD {
+      // Remember where the full result should appear, then shrink to the HUD.
+      resultFrame = panel.frame
+      isShowingHUD = true
+      panel.contentView = NSHostingView(rootView: LookupHUDView(progress: progress))
+      panel.setFrame(hudFrame(centeredOn: panel.frame), display: true, animate: false)
+    }
+    panel.orderFrontRegardless()
+  }
+
+  private func presentResult<Content: View>(rootView: Content) {
+    let panel = existingOrCreatePanel()
+    panel.contentView = NSHostingView(rootView: rootView)
+    if isShowingHUD {
+      isShowingHUD = false
+      let target = resultFrame ?? panel.frame
+      panel.setFrame(target, display: true, animate: true)
+    }
+    // Float above the frontmost app WITHOUT activating Vocra or taking key
+    // focus, so the user can keep working. Dismiss via the global Esc monitor.
+    panel.orderFrontRegardless()
+  }
+
+  private func hudFrame(centeredOn frame: NSRect) -> NSRect {
+    let size = LookupHUDView.size
+    return NSRect(
+      x: frame.midX - size.width / 2,
+      y: frame.midY - size.height / 2,
+      width: size.width,
+      height: size.height
+    )
   }
 
   private func existingOrCreatePanel() -> NSPanel {
@@ -49,7 +92,7 @@ final class FloatingPanelController: ExplanationPanelPresenting {
       backing: .buffered,
       defer: false
     )
-    panel.minSize = NSSize(width: 440, height: 460)
+    panel.minSize = NSSize(width: 380, height: 86)
     panel.level = .floating
     panel.isOpaque = false
     panel.backgroundColor = .clear
@@ -57,7 +100,6 @@ final class FloatingPanelController: ExplanationPanelPresenting {
     panel.hasShadow = true
     panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
     panel.isMovableByWindowBackground = true
-    panel.setFrameAutosaveName(autosaveName)
     panel.onEscape = { [weak self] in
       self?.close()
     }

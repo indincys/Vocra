@@ -34,17 +34,8 @@ struct ExplanationPanelView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
       footer
     }
-    .frame(minWidth: 420, maxWidth: .infinity, minHeight: 360, maxHeight: .infinity)
-    .background {
-      VisualEffectBlur(material: .popover, blendingMode: .behindWindow)
-    }
-    .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-    .overlay {
-      RoundedRectangle(cornerRadius: 24, style: .continuous)
-        .strokeBorder(Color.white.opacity(0.35), lineWidth: 1)
-    }
-    .shadow(color: VocraTheme.shadow.opacity(0.32), radius: 26, x: 0, y: 18)
-    .shadow(color: VocraTheme.shadow.opacity(0.16), radius: 6, x: 0, y: 4)
+    .frame(minWidth: 360, maxWidth: .infinity, minHeight: 80, maxHeight: .infinity)
+    .vocraFloatingGlass(cornerRadius: 24)
     .environment(\.colorScheme, .light)
     .tint(VocraTheme.accent)
     .onAppear(perform: autoSpeakIfEnabled)

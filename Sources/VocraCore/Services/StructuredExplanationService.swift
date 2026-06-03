@@ -21,9 +21,13 @@ public struct StructuredExplanationService: Sendable {
     self.preferences = preferences
   }
 
-  public func explain(captured: CapturedText, template: PromptTemplate) async throws -> LearningExplanationDocument {
+  public func explain(
+    captured: CapturedText,
+    template: PromptTemplate,
+    onPartial: @escaping @Sendable (String) -> Void = { _ in }
+  ) async throws -> LearningExplanationDocument {
     let prompt = try promptFactory.prompt(for: captured, template: template, preferences: preferences)
-    let raw = try await aiClient.complete(prompt: prompt)
+    let raw = try await aiClient.complete(prompt: prompt, onPartial: onPartial)
     do {
       return try decodeAndValidate(raw, captured: captured, validatesVocabularyCard: false)
     } catch {

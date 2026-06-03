@@ -33,13 +33,17 @@ final class AppModel {
   private let reviewScheduler: ReviewScheduler
   private let shortcutService: any ShortcutRegistering
   private let panelPresenter: any ExplanationPanelPresenting
+  private let explanationCache: any ExplanationCaching
   private let explanationProvider: ExplanationProvider?
   private let vocabularyCardProvider: VocabularyCardProvider?
   @ObservationIgnored nonisolated(unsafe) private var shortcutChangeObserver: NSObjectProtocol?
   @ObservationIgnored private var activeExplanationRequestID = 0
 
   convenience init() {
-    self.init(vocabularyRepository: try! SQLiteVocabularyRepository(path: AppModel.databasePath()))
+    self.init(
+      vocabularyRepository: try! SQLiteVocabularyRepository(path: AppModel.databasePath()),
+      explanationCache: DiskExplanationCache(directory: AppModel.explanationCacheDirectory())
+    )
   }
 
   init(
@@ -52,6 +56,7 @@ final class AppModel {
     reviewScheduler: ReviewScheduler = ReviewScheduler(),
     shortcutService: any ShortcutRegistering = ShortcutService(),
     panelPresenter: any ExplanationPanelPresenting = FloatingPanelController(),
+    explanationCache: any ExplanationCaching = NoExplanationCache(),
     explanationProvider: ExplanationProvider? = nil,
     vocabularyCardProvider: VocabularyCardProvider? = nil
   ) {
@@ -64,6 +69,7 @@ final class AppModel {
     self.reviewScheduler = reviewScheduler
     self.shortcutService = shortcutService
     self.panelPresenter = panelPresenter
+    self.explanationCache = explanationCache
     self.explanationProvider = explanationProvider
     self.vocabularyCardProvider = vocabularyCardProvider
     self.currentShortcut = settingsStore.loadKeyboardShortcut()
@@ -291,16 +297,32 @@ final class AppModel {
     }
     let template = promptStore.template(for: kind)!
     let activeProfile = settingsStore.loadAPIProviderSettings().activeProfile
+    let configuration = activeProfile?.configuration ?? settingsStore.loadAPIConfiguration()
+
+    if let cached = explanationCache.cached(text: captured.cleanedText, mode: captured.mode, model: configuration.model) {
+      shortcutFlowLogger.info("Explanation served from cache; mode: \(captured.mode.rawValue, privacy: .public).")
+      return cached
+    }
+
     let apiKeyStore = activeProfile.map { KeychainAPIKeyStore(account: $0.keychainAccount) } ?? self.apiKeyStore
     let client = OpenAICompatibleClient(
-      configuration: activeProfile?.configuration ?? settingsStore.loadAPIConfiguration(),
+      configuration: configuration,
       apiKeyProvider: { try apiKeyStore.readAPIKey() }
     )
     let service = StructuredExplanationService(
       aiClient: client,
       preferences: settingsStore.loadLearningPreferences()
     )
-    return try await service.explain(captured: captured, template: template)
+    let document = try await service.explain(
+      captured: captured,
+      template: template,
+      onPartial: { [weak self] raw in
+        let preview = extractStreamingPreview(from: raw)
+        Task { @MainActor in self?.panelPresenter.updateStreamingPreview(preview) }
+      }
+    )
+    explanationCache.store(document, text: captured.cleanedText, mode: captured.mode, model: configuration.model)
+    return document
   }
 
   private func generateVocabularyCard(for captured: CapturedText) async throws -> LearningExplanationDocument {
@@ -361,6 +383,57 @@ final class AppModel {
     try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     return folder.appending(path: "vocra.sqlite").path
   }
+
+  private static func explanationCacheDirectory() -> URL {
+    let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+    let folderName = Bundle.main.bundleIdentifier == "com.indincys.Vocra.dev" ? "Vocra Dev" : "Vocra"
+    return support
+      .appending(path: folderName, directoryHint: .isDirectory)
+      .appending(path: "ExplanationCache", directoryHint: .isDirectory)
+  }
+}
+
+/// Extracts a readable tail from streaming JSON by concatenating its string
+/// *values* (skipping keys), so the loading HUD can show content as it streams.
+func extractStreamingPreview(from raw: String, maxLength: Int = 80) -> String {
+  var values: [String] = []
+  var current = ""
+  var inString = false
+  var escaped = false
+  let characters = Array(raw)
+  var index = 0
+  while index < characters.count {
+    let character = characters[index]
+    if inString {
+      if escaped {
+        current.append(character)
+        escaped = false
+      } else if character == "\\" {
+        escaped = true
+      } else if character == "\"" {
+        var lookahead = index + 1
+        while lookahead < characters.count, characters[lookahead] == " " || characters[lookahead] == "\n" || characters[lookahead] == "\t" {
+          lookahead += 1
+        }
+        let isKey = lookahead < characters.count && characters[lookahead] == ":"
+        if !isKey, !current.isEmpty { values.append(current) }
+        current = ""
+        inString = false
+      } else {
+        current.append(character)
+      }
+    } else if character == "\"" {
+      inString = true
+      current = ""
+    }
+    index += 1
+  }
+  if inString, !current.isEmpty { values.append(current) }
+
+  let joined = values.joined(separator: "  ").replacingOccurrences(of: "\n", with: " ")
+  let trimmed = joined.trimmingCharacters(in: .whitespaces)
+  if trimmed.count <= maxLength { return trimmed }
+  return "…" + String(trimmed.suffix(maxLength))
 }
 
 private func elapsedMilliseconds(from start: ContinuousClock.Instant, clock: ContinuousClock) -> Int64 {

@@ -76,6 +76,10 @@ public struct OpenAICompatibleClient: AIClient {
   }
 
   public func complete(prompt: String) async throws -> String {
+    try await complete(prompt: prompt, onPartial: { _ in })
+  }
+
+  public func complete(prompt: String, onPartial: @escaping @Sendable (String) -> Void) async throws -> String {
     let clock = ContinuousClock()
     let requestStart = clock.now
     let apiKey = try apiKeyProvider()?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -130,6 +134,7 @@ public struct OpenAICompatibleClient: AIClient {
              let piece = decoded.choices.first?.delta?.content {
             aggregated += piece
             sawStreamedDelta = true
+            onPartial(aggregated)
           }
         } else {
           bufferedBody += line
