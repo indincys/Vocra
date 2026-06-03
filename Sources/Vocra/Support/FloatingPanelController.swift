@@ -8,8 +8,12 @@ final class FloatingPanelController: ExplanationPanelPresenting {
   private var panel: NSPanel?
   private var localEscapeMonitor: Any?
   private var globalEscapeMonitor: Any?
+  private var globalClickMonitor: Any?
   private let progress = LookupProgress()
   private var isShowingHUD = false
+  /// True while the full result/error panel is on screen — gates click-outside
+  /// dismissal so a stray click during the transient loading HUD can't cancel it.
+  private var isShowingResult = false
   private static let resultSize = CGSize(width: 540, height: 660)
 
   func show(
@@ -38,6 +42,7 @@ final class FloatingPanelController: ExplanationPanelPresenting {
   }
 
   func close() {
+    isShowingResult = false
     panel?.orderOut(nil)
   }
 
@@ -46,6 +51,7 @@ final class FloatingPanelController: ExplanationPanelPresenting {
   private func presentLoadingHUD(term: String, mode: ExplanationMode) {
     let panel = existingOrCreatePanel()
     progress.reset(term: term, mode: mode)
+    isShowingResult = false
     if !isShowingHUD {
       isShowingHUD = true
       panel.contentView = NSHostingView(rootView: LookupHUDView(progress: progress))
@@ -57,6 +63,7 @@ final class FloatingPanelController: ExplanationPanelPresenting {
   private func presentResult<Content: View>(rootView: Content) {
     let panel = existingOrCreatePanel()
     panel.contentView = NSHostingView(rootView: rootView)
+    isShowingResult = true
     if isShowingHUD {
       isShowingHUD = false
       // Grow up-and-left from the HUD's bottom-right corner into the result.
@@ -124,6 +131,17 @@ final class FloatingPanelController: ExplanationPanelPresenting {
 
       Task { @MainActor in
         self?.close()
+      }
+    }
+
+    // Clicking outside the result panel dismisses it. A global monitor only
+    // fires for events delivered to OTHER apps/windows, so any click it sees is
+    // necessarily outside our panel; clicks inside the panel never reach here.
+    globalClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self, weak panel] _ in
+      guard panel?.isVisible == true else { return }
+      Task { @MainActor in
+        guard let self, self.isShowingResult else { return }
+        self.close()
       }
     }
   }

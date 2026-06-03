@@ -119,9 +119,11 @@ private enum BundledPromptTemplates {
             { "id": "main-subject", "text": "<exact sentence span>", "role": "subject", "labelZh": "主语", "labelEn": "Subject", "color": "blue", "note": "<这一成分在本句中的具体作用：它修饰/引出/连接了什么，以及在这句话里的含义>" }
           ] },
           "structureBreakdown": {
-            "title": "从句结构解析",
+            "title": "句子主干",
+            "trunk": "<只保留主干后的核心句：主语 + 谓语 (+ 宾语/表语)，去掉所有定语、状语和从句；并列分句各取主干后自然连接>",
+            "trunkZh": "<trunk 的简洁中文意思>",
             "items": [
-              { "id": "main-clause", "text": "<exact sentence span>", "role": "mainClause", "labelZh": "主句", "labelEn": "Main Clause", "children": [] }
+              { "id": "main-clause", "text": "<exact clause span>", "role": "mainClause", "labelZh": "主句", "labelEn": "Main Clause", "note": "<这个分句在本句里承担的具体作用：陈述/让步/条件/原因等，并概括它说了什么>", "children": [] }
             ]
           },
           "relationshipDiagram": {
@@ -145,7 +147,11 @@ private enum BundledPromptTemplates {
       }
 
       Segment colors must be one of: blue, green, orange, purple, pink, neutral.
+      sentence.text MUST be the complete selected sentence(s) copied verbatim, including punctuation — never shortened, paraphrased, or split into a fragment.
+      sentence.segments mark up the grammatically meaningful constituents in reading order — subject, predicate/verb, object, complement, key adverbials, connectives (and / but / that / which …) and each clause boundary. Each segment.text MUST be an exact, contiguous substring of sentence.text (copy the words and spacing verbatim) so the app can find and underline it inside the original sentence; never rewrite words, merge non-adjacent words, or drop words. Mark the backbone densely; minor filler between marked spans may be left unmarked. Use color to group roles: subject=blue, predicate/object=green, adverbial/conjunction=orange, clause/connector=purple, contrast (but / yet)=pink, minor=neutral, and give a matching labelZh (主语/谓语/宾语/状语/连词/定语从句/主句…).
       Every sentence.segments item MUST include a "note": a concise Chinese explanation of that exact span's role IN THIS sentence — what it modifies, introduces, connects, or contrasts, and what it means here. Be specific to this sentence and teach it like a tutor; do NOT give a generic textbook definition of the grammatical role. For example "before 在这里引出时间状语从句，说明拦截发生在请求到达控制器之前" rather than "状语用来修饰动词".
+      structureBreakdown.trunk MUST be the sentence stripped down to its core (remove all 定语/状语/从句, keep subject + verb + object/complement), and structureBreakdown.trunkZh its short Chinese meaning, so the learner instantly sees the skeleton.
+      Every structureBreakdown.items item MUST include a "note" stating what that clause/structure does in this sentence (陈述/转折/给出条件/修饰哪部分…), specific to this sentence rather than a generic definition.
       Every relationshipDiagram edge must include from, to, labelZh, and labelEn.
       Use 3-8 sentence.segments for diagramDensity full, and 1-4 segments for diagramDensity simple.
       Text: {{text}}
@@ -277,11 +283,11 @@ private enum BundledPromptTemplates {
     switch kind {
     case .sentenceAnalysisSchema:
       // Matches any earlier Vocra-bundled structured sentence default that
-      // predates the per-segment "note" field, so unedited users upgrade.
+      // predates the "trunk" / structure-note fields, so unedited users upgrade.
       normalizedBody.contains("Use exactly this root shape and JSON value types")
         && normalizedBody.contains(#""sentence": { "text": "<selected sentence>", "segments": ["#)
         && normalizedBody.contains("Segment colors must be one of")
-        && !normalizedBody.contains("这一成分在本句中的具体作用")
+        && !normalizedBody.contains(#""trunk""#)
     case .wordExplanationSchema:
       false
     case .vocabularyCardSchema:

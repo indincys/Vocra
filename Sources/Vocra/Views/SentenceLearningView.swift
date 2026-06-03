@@ -32,25 +32,59 @@ struct SentenceLearningView: View {
           .lineSpacing(5)
           .frame(maxWidth: .infinity, alignment: .leading)
       } else {
-        RoleUnderlinedSentence(segments: analysis.sentence.segments)
+        RoleUnderlinedSentence(text: analysis.sentence.text, segments: analysis.sentence.segments)
       }
     }
     .padding(18)
   }
 
+  private var trunk: String {
+    analysis.structureBreakdown.trunk.trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  private var trunkZh: String {
+    analysis.structureBreakdown.trunkZh.trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
   @ViewBuilder
   private var backbone: some View {
-    if !analysis.headline.title.isEmpty || !analysis.structureBreakdown.items.isEmpty {
-      PopSection(icon: "scissors", title: "抓主干", hint: analysis.headline.subtitle.isEmpty ? nil : analysis.headline.subtitle) {
-        PopInset(tint: VocraTheme.accentSoft) {
-          VStack(alignment: .leading, spacing: 8) {
-            if !analysis.headline.title.isEmpty {
-              Text(analysis.headline.title)
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(VocraTheme.ink900)
+    if !trunk.isEmpty || !analysis.structureBreakdown.items.isEmpty {
+      PopSection(icon: "scissors", title: "抓主干", hint: "去掉修饰，先抓核心") {
+        VStack(alignment: .leading, spacing: 13) {
+          if !trunk.isEmpty {
+            PopInset(tint: VocraTheme.accentSoft) {
+              VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                  Text("句子主干")
+                    .font(.system(size: 10.5, weight: .bold))
+                    .foregroundStyle(VocraTheme.accentInk)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2)
+                    .background(VocraTheme.accentSoft, in: Capsule())
+                  Spacer(minLength: 0)
+                  SpeakerButton(text: trunk, size: 12)
+                }
+                Text(trunk)
+                  .font(.system(size: 16, weight: .semibold))
+                  .foregroundStyle(VocraTheme.ink900)
+                  .fixedSize(horizontal: false, vertical: true)
+                  .frame(maxWidth: .infinity, alignment: .leading)
+                if !trunkZh.isEmpty {
+                  Text(trunkZh)
+                    .font(.system(size: 13))
+                    .foregroundStyle(VocraTheme.ink700)
+                    .lineSpacing(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+              }
             }
-            ForEach(analysis.structureBreakdown.items) { item in
-              StructureRow(item: item, depth: 0)
+          }
+          if !analysis.structureBreakdown.items.isEmpty {
+            VStack(alignment: .leading, spacing: 11) {
+              ForEach(analysis.structureBreakdown.items) { item in
+                StructureRow(item: item, depth: 0)
+              }
             }
           }
         }
@@ -174,18 +208,39 @@ private struct StructureRow: View {
   let item: StructureItem
   let depth: Int
 
+  private var token: LearningColorToken { structureRoleColor(item.labelZh) }
+
   var body: some View {
     VStack(alignment: .leading, spacing: 6) {
-      HStack(alignment: .top, spacing: 8) {
-        Text(item.text)
-          .font(.system(size: 13.5))
-          .foregroundStyle(VocraTheme.ink700)
-          .fixedSize(horizontal: false, vertical: true)
-        Spacer(minLength: 8)
-        Text(item.labelZh)
-          .font(.system(size: 11, weight: .semibold))
-          .foregroundStyle(VocraTheme.accentInk)
-          .fixedSize()
+      VStack(alignment: .leading, spacing: 5) {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+          Text(item.labelZh)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(token.vocraInk)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 2)
+            .background(token.vocraColor.opacity(0.18), in: Capsule())
+            .fixedSize()
+          Text(item.text)
+            .font(.system(size: 13.5))
+            .foregroundStyle(VocraTheme.ink700)
+            .fixedSize(horizontal: false, vertical: true)
+          Spacer(minLength: 0)
+        }
+        if !item.note.isEmpty {
+          Text(item.note)
+            .font(.system(size: 12.5))
+            .foregroundStyle(VocraTheme.ink500)
+            .lineSpacing(2)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+      }
+      .padding(.leading, 10)
+      .overlay(alignment: .leading) {
+        RoundedRectangle(cornerRadius: 1.5)
+          .fill(token.vocraColor.opacity(0.55))
+          .frame(width: 3)
       }
       .padding(.leading, CGFloat(depth) * 14)
 
@@ -194,4 +249,16 @@ private struct StructureRow: View {
       }
     }
   }
+}
+
+/// Maps a clause/structure's Chinese label to a role color from the underline
+/// palette, so the backbone badges echo the colors used in the sentence above.
+private func structureRoleColor(_ labelZh: String) -> LearningColorToken {
+  if labelZh.contains("主句") || labelZh.contains("主干") { return .blue }
+  if labelZh.contains("并列") { return .green }
+  if labelZh.contains("转折") || labelZh.contains("让步") { return .pink }
+  if labelZh.contains("定语") || labelZh.contains("从句") || labelZh.contains("名词性") { return .purple }
+  if labelZh.contains("状语") || labelZh.contains("条件") || labelZh.contains("原因")
+    || labelZh.contains("时间") || labelZh.contains("目的") || labelZh.contains("结果") { return .orange }
+  return .neutral
 }

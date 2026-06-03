@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 import VocraCore
 
@@ -148,71 +149,240 @@ struct PopNumber: View {
   }
 }
 
-/// The parsed sentence rendered as colored, thickly-underlined role chunks plus
-/// a compact legend. Hovering any chunk pops a bubble explaining that component.
+private enum SentenceMetrics {
+  static let glyph: CGFloat = 17
+  static let barHeight: CGFloat = 3
+  static let labelSize: CGFloat = 10.5
+  /// Space under each word that holds the underline bar (role spans only).
+  static let underlinePad: CGFloat = 4
+  /// Fixed height reserved for the role label beneath every word, so glyph
+  /// baselines stay aligned and line spacing is even across the sentence.
+  static let labelHeight: CGFloat = 14
+  static let stackSpacing: CGFloat = 2
+}
+
+/// The full original sentence, rendered verbatim, with each grammatical
+/// constituent underlined in its role color and labeled directly beneath the
+/// underline (主语/谓语/连词…). Hovering a labeled span pops a bubble with the
+/// sentence-specific note. Connective filler between spans stays plain so the
+/// sentence is never broken into fragments.
 struct RoleUnderlinedSentence: View {
+  let text: String
   let segments: [SentenceSegment]
   @State private var hoveredID: String?
 
-  private var usedRoles: [SentenceSegment] {
-    var seen = Set<String>()
-    return segments.filter { seen.insert($0.labelZh).inserted }
+  private var pieces: [SentenceDisplayPiece] {
+    sentenceDisplayPieces(text: text, segments: segments)
   }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 12) {
-      FlowLayout(spacing: 5, rowSpacing: 14) {
-        ForEach(segments) { segment in
-          SegmentChunk(segment: segment, hoveredID: $hoveredID)
+    FlowLayout(spacing: 4, rowSpacing: 7) {
+      ForEach(pieces) { piece in
+        switch piece.kind {
+        case .plain:
+          PlainWord(text: piece.text)
+        case let .role(segment):
+          RoleSpan(text: piece.text, segment: segment, hoveredID: $hoveredID)
         }
       }
-      if usedRoles.count > 1 {
-        FlowLayout(spacing: 12, rowSpacing: 7) {
-          ForEach(usedRoles) { segment in
-            HStack(spacing: 5) {
-              RoundedRectangle(cornerRadius: 1).fill(segment.color.vocraColor).frame(width: 15, height: 2.5)
-              Text(segment.labelZh).font(.system(size: 11)).foregroundStyle(VocraTheme.ink500)
-            }
-          }
-        }
-      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+  }
+}
+
+/// A plain (unlabeled) word; reserves the same underline + label height as a
+/// labeled span so every line keeps a uniform rhythm and baselines stay aligned.
+private struct PlainWord: View {
+  let text: String
+
+  var body: some View {
+    VStack(spacing: SentenceMetrics.stackSpacing) {
+      Text(text)
+        .font(.system(size: SentenceMetrics.glyph))
+        .foregroundStyle(VocraTheme.ink900)
+        .fixedSize()
+        .padding(.bottom, SentenceMetrics.underlinePad)
+      Color.clear.frame(height: SentenceMetrics.labelHeight)
     }
   }
 }
 
-private struct SegmentChunk: View {
+/// A labeled, underlined grammatical span. The colored bar sits flush under the
+/// word and the Chinese role label sits under the bar.
+private struct RoleSpan: View {
+  let text: String
   let segment: SentenceSegment
   @Binding var hoveredID: String?
 
+  private var isHovered: Bool { hoveredID == segment.id }
+
   var body: some View {
-    Text(segment.text)
-      .font(.system(size: 17))
-      .foregroundStyle(VocraTheme.ink900)
-      .padding(.horizontal, 2)
-      .padding(.bottom, 3)
-      .background(
-        hoveredID == segment.id ? segment.color.vocraColor.opacity(0.16) : .clear,
-        in: RoundedRectangle(cornerRadius: 4, style: .continuous)
-      )
-      .overlay(alignment: .bottom) {
-        RoundedRectangle(cornerRadius: 2, style: .continuous)
-          .fill(segment.color.vocraColor)
-          .frame(height: 3)
-      }
-      .onHover { hovering in
-        if hovering { hoveredID = segment.id }
-        else if hoveredID == segment.id { hoveredID = nil }
-      }
-      .popover(
-        isPresented: Binding(
-          get: { hoveredID == segment.id },
-          set: { presented in if !presented, hoveredID == segment.id { hoveredID = nil } }
-        ),
-        arrowEdge: .top
-      ) {
-        SegmentTooltip(segment: segment).environment(\.colorScheme, .light)
-      }
+    VStack(spacing: SentenceMetrics.stackSpacing) {
+      Text(text)
+        .font(.system(size: SentenceMetrics.glyph))
+        .foregroundStyle(VocraTheme.ink900)
+        .fixedSize()
+        .padding(.horizontal, 1)
+        .padding(.bottom, SentenceMetrics.underlinePad)
+        .background(
+          isHovered ? segment.color.vocraColor.opacity(0.16) : .clear,
+          in: RoundedRectangle(cornerRadius: 4, style: .continuous)
+        )
+        .overlay(alignment: .bottom) {
+          RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+            .fill(segment.color.vocraColor)
+            .frame(height: SentenceMetrics.barHeight)
+        }
+      Text(segment.labelZh)
+        .font(.system(size: SentenceMetrics.labelSize, weight: .semibold))
+        .foregroundStyle(segment.color.vocraInk)
+        .lineLimit(1)
+        .fixedSize()
+        .frame(height: SentenceMetrics.labelHeight)
+    }
+    .contentShape(Rectangle())
+    .onHover { hovering in
+      if hovering { hoveredID = segment.id }
+      else if hoveredID == segment.id { hoveredID = nil }
+    }
+    .popover(
+      isPresented: Binding(
+        get: { hoveredID == segment.id },
+        set: { presented in if !presented, hoveredID == segment.id { hoveredID = nil } }
+      ),
+      arrowEdge: .bottom
+    ) {
+      SegmentTooltip(segment: segment).environment(\.colorScheme, .light)
+    }
   }
+}
+
+// MARK: - Sentence tiling
+
+/// One renderable unit of the underlined sentence.
+struct SentenceDisplayPiece: Identifiable, Equatable {
+  enum Kind: Equatable {
+    case plain
+    case role(SentenceSegment)
+  }
+
+  let id: String
+  let text: String
+  let kind: Kind
+}
+
+/// Reconstructs the full sentence as an ordered list of pieces: plain word
+/// tokens for the connective tissue, and role spans for each grammatical
+/// constituent located (tolerantly) inside the original text. Works on whole
+/// whitespace-delimited tokens so punctuation always stays attached to its
+/// word, and guarantees the whole sentence is shown even when the model only
+/// marks a few spans.
+func sentenceDisplayPieces(text: String, segments: [SentenceSegment]) -> [SentenceDisplayPiece] {
+  guard !text.isEmpty else { return [] }
+  let tokens = wordTokenRanges(in: text)
+  guard !tokens.isEmpty else { return [] }
+
+  // Locate each segment's span, preferring the next forward occurrence so spans
+  // stay in reading order; fall back to anywhere if a forward match is missing.
+  // Keep only non-overlapping spans (earlier start wins).
+  var matches: [(range: Range<String.Index>, segment: SentenceSegment)] = []
+  if !segments.isEmpty {
+    var cursor = text.startIndex
+    for segment in segments {
+      guard let range = locateSpan(segment.text, in: text, from: cursor)
+        ?? locateSpan(segment.text, in: text, from: text.startIndex)
+      else { continue }
+      matches.append((range, segment))
+      if range.upperBound > cursor { cursor = range.upperBound }
+    }
+    matches.sort { $0.range.lowerBound < $1.range.lowerBound }
+    var deduped: [(range: Range<String.Index>, segment: SentenceSegment)] = []
+    for match in matches {
+      if let last = deduped.last, match.range.lowerBound < last.range.upperBound { continue }
+      deduped.append(match)
+    }
+    matches = deduped
+  }
+
+  // Assign each word token to the span it overlaps most (nil = plain word).
+  func assignedSegment(for token: Range<String.Index>) -> Int? {
+    var bestIndex: Int?
+    var bestOverlap = 0
+    for (index, match) in matches.enumerated() {
+      let lower = max(token.lowerBound, match.range.lowerBound)
+      let upper = min(token.upperBound, match.range.upperBound)
+      guard lower < upper else { continue }
+      let overlap = text.distance(from: lower, to: upper)
+      if overlap > bestOverlap {
+        bestOverlap = overlap
+        bestIndex = index
+      }
+    }
+    return bestIndex
+  }
+
+  // Walk tokens, grouping a run of consecutive tokens that share a span into one
+  // labeled role piece; unassigned tokens become individual plain words so the
+  // sentence wraps naturally.
+  var pieces: [SentenceDisplayPiece] = []
+  var runStart: Int?
+  var runSegment: Int?
+  var plainCounter = 0
+
+  func flushRun(endExclusive: Int) {
+    guard let start = runStart, let segIndex = runSegment, endExclusive > start else {
+      runStart = nil
+      runSegment = nil
+      return
+    }
+    let span = String(text[tokens[start].lowerBound..<tokens[endExclusive - 1].upperBound])
+    let segment = matches[segIndex].segment
+    pieces.append(SentenceDisplayPiece(id: "seg-\(segment.id)-\(start)", text: span, kind: .role(segment)))
+    runStart = nil
+    runSegment = nil
+  }
+
+  for (index, token) in tokens.enumerated() {
+    if let assigned = assignedSegment(for: token) {
+      if runSegment == assigned { continue }
+      flushRun(endExclusive: index)
+      runStart = index
+      runSegment = assigned
+    } else {
+      flushRun(endExclusive: index)
+      pieces.append(SentenceDisplayPiece(id: "w-\(plainCounter)", text: String(text[token]), kind: .plain))
+      plainCounter += 1
+    }
+  }
+  flushRun(endExclusive: tokens.count)
+  return pieces
+}
+
+/// The character ranges of every whitespace-delimited token in `text`.
+private func wordTokenRanges(in text: String) -> [Range<String.Index>] {
+  var result: [Range<String.Index>] = []
+  var index = text.startIndex
+  while index < text.endIndex {
+    while index < text.endIndex, text[index].isWhitespace { index = text.index(after: index) }
+    guard index < text.endIndex else { break }
+    let start = index
+    while index < text.endIndex, !text[index].isWhitespace { index = text.index(after: index) }
+    result.append(start..<index)
+  }
+  return result
+}
+
+/// Finds `needle` inside `haystack` at or after `start`, tolerating case and
+/// whitespace differences between the model's span and the original sentence.
+private func locateSpan(_ needle: String, in haystack: String, from start: String.Index) -> Range<String.Index>? {
+  let trimmed = needle.trimmingCharacters(in: .whitespacesAndNewlines)
+  guard !trimmed.isEmpty, start <= haystack.endIndex else { return nil }
+  let window = start..<haystack.endIndex
+  if let range = haystack.range(of: trimmed, range: window) { return range }
+  if let range = haystack.range(of: trimmed, options: .caseInsensitive, range: window) { return range }
+  let pattern = NSRegularExpression.escapedPattern(for: trimmed)
+    .replacingOccurrences(of: "\\s+", with: "\\\\s+", options: .regularExpression)
+  return haystack.range(of: pattern, options: [.regularExpression, .caseInsensitive], range: window)
 }
 
 /// Hover bubble: colored role badge + the chunk text + a sentence-specific note

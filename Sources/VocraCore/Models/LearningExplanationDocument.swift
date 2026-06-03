@@ -214,11 +214,34 @@ public struct SentenceSegment: Codable, Equatable, Sendable, Identifiable {
 
 public struct StructureBreakdown: Codable, Equatable, Sendable {
   public var title: String
+  /// The stripped-down core sentence (subject + verb + object/complement) with
+  /// modifiers and subordinate clauses removed — the "trunk" a reader should
+  /// grab first. Optional in the JSON.
+  public var trunk: String
+  /// Concise Chinese gloss of `trunk`. Optional in the JSON.
+  public var trunkZh: String
   public var items: [StructureItem]
 
-  public init(title: String, items: [StructureItem]) {
+  public init(title: String, trunk: String = "", trunkZh: String = "", items: [StructureItem]) {
     self.title = title
+    self.trunk = trunk
+    self.trunkZh = trunkZh
     self.items = items
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case title
+    case trunk
+    case trunkZh
+    case items
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    title = try container.decode(String.self, forKey: .title)
+    trunk = (try container.decodeIfPresent(String.self, forKey: .trunk)) ?? ""
+    trunkZh = (try container.decodeIfPresent(String.self, forKey: .trunkZh)) ?? ""
+    items = try container.decodeIfPresent([StructureItem].self, forKey: .items) ?? []
   }
 }
 
@@ -228,6 +251,9 @@ public struct StructureItem: Codable, Equatable, Sendable, Identifiable {
   public var role: String
   public var labelZh: String
   public var labelEn: String
+  /// Sentence-specific Chinese note explaining what job this clause/structure
+  /// does in this exact sentence (states / modifies / connects what). Optional.
+  public var note: String
   public var children: [StructureItem]
 
   public init(
@@ -236,6 +262,7 @@ public struct StructureItem: Codable, Equatable, Sendable, Identifiable {
     role: String,
     labelZh: String,
     labelEn: String,
+    note: String = "",
     children: [StructureItem]
   ) {
     self.id = id
@@ -243,6 +270,7 @@ public struct StructureItem: Codable, Equatable, Sendable, Identifiable {
     self.role = role
     self.labelZh = labelZh
     self.labelEn = labelEn
+    self.note = note
     self.children = children
   }
 
@@ -252,6 +280,7 @@ public struct StructureItem: Codable, Equatable, Sendable, Identifiable {
     case role
     case labelZh
     case labelEn
+    case note
     case children
   }
 
@@ -262,6 +291,7 @@ public struct StructureItem: Codable, Equatable, Sendable, Identifiable {
     role = try container.decode(String.self, forKey: .role)
     labelZh = try container.decode(String.self, forKey: .labelZh)
     labelEn = try container.decode(String.self, forKey: .labelEn)
+    note = (try container.decodeIfPresent(String.self, forKey: .note)) ?? ""
     children = try container.decodeIfPresent([StructureItem].self, forKey: .children) ?? []
   }
 }
