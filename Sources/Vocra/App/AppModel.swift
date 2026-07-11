@@ -192,33 +192,7 @@ final class AppModel {
         await loadSentenceSupplement(for: captured, requestID: requestID)
       }
 
-      if captured.mode == .word || captured.mode == .phrase {
-        let vocabularyType: VocabularyType = captured.mode == .word ? .word : .phrase
-        do {
-          let cardDocument = try await generateVocabularyCard(for: captured)
-          guard isCurrentExplanationRequest(requestID) else {
-            shortcutFlowLogger.info("Ignoring stale shortcut vocabulary card result.")
-            return
-          }
-          let cardJSON = String(data: try JSONEncoder().encode(cardDocument), encoding: .utf8)!
-          _ = try vocabularyRepository.upsert(
-            text: captured.cleanedText,
-            type: vocabularyType,
-            cardJSON: cardJSON,
-            sourceApp: captured.sourceApp,
-            now: Date()
-          )
-          vocabularyRevision += 1
-        } catch {
-          guard isCurrentExplanationRequest(requestID) else {
-            shortcutFlowLogger.info("Ignoring stale shortcut vocabulary card error result.")
-            return
-          }
-          shortcutFlowLogger.error(
-            "Vocabulary card generation failed after primary explanation was shown: \(String(describing: error), privacy: .public)"
-          )
-        }
-      }
+      await persistVocabularyIfNeeded(for: captured, explanation: document, requestID: requestID)
 
       shortcutFlowLogger.info(
         "Shortcut handling finished in \(elapsedMilliseconds(from: flowStart, clock: clock), privacy: .public) ms."
@@ -259,6 +233,9 @@ final class AppModel {
       if adjusted.mode == .sentence {
         await loadSentenceSupplement(for: adjusted, requestID: requestID)
       }
+      // Manually switching to word/phrase mode now saves to the notebook too, matching the
+      // shortcut flow (previously only the shortcut flow auto-saved).
+      await persistVocabularyIfNeeded(for: adjusted, explanation: document, requestID: requestID)
     } catch {
       guard isCurrentExplanationRequest(requestID) else { return }
       latestCapturedText = adjusted
@@ -364,13 +341,50 @@ final class AppModel {
     explanationCache.store(document, text: captured.cleanedText, mode: captured.mode, model: resolved.configuration.model)
   }
 
-  private func generateVocabularyCard(for captured: CapturedText) async throws -> LearningExplanationDocument {
+  /// Saves the looked-up word/phrase to the notebook. The card is synthesized locally from
+  /// the already-returned `WordExplanation` (no second model call); tests can still inject a
+  /// `vocabularyCardProvider` to exercise the async path. Guards against stale requests.
+  private func persistVocabularyIfNeeded(
+    for captured: CapturedText,
+    explanation document: LearningExplanationDocument,
+    requestID: Int
+  ) async {
+    guard captured.mode == .word || captured.mode == .phrase else { return }
+    let vocabularyType: VocabularyType = captured.mode == .word ? .word : .phrase
+    do {
+      guard let cardDocument = try await vocabularyCardDocument(for: captured, explanation: document) else { return }
+      guard isCurrentExplanationRequest(requestID) else {
+        shortcutFlowLogger.info("Ignoring stale shortcut vocabulary card result.")
+        return
+      }
+      let cardJSON = String(data: try JSONEncoder().encode(cardDocument), encoding: .utf8)!
+      _ = try vocabularyRepository.upsert(
+        text: captured.cleanedText,
+        type: vocabularyType,
+        cardJSON: cardJSON,
+        sourceApp: captured.sourceApp,
+        now: Date()
+      )
+      vocabularyRevision += 1
+    } catch {
+      guard isCurrentExplanationRequest(requestID) else {
+        shortcutFlowLogger.info("Ignoring stale shortcut vocabulary card error result.")
+        return
+      }
+      shortcutFlowLogger.error(
+        "Vocabulary card save failed after primary explanation was shown: \(String(describing: error), privacy: .public)"
+      )
+    }
+  }
+
+  private func vocabularyCardDocument(
+    for captured: CapturedText,
+    explanation document: LearningExplanationDocument
+  ) async throws -> LearningExplanationDocument? {
     if let vocabularyCardProvider {
       return try await vocabularyCardProvider(captured)
     }
-
-    let template = resolvedTemplate(for: .vocabularyCardSchema)
-    return try await makeExplanationService().service.vocabularyCard(captured: captured, template: template)
+    return VocabularyCardSynthesizer.card(from: document, captured: captured)
   }
 
   /// Builds a client + structured-explanation service for the active API profile,

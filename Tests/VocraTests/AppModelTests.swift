@@ -234,6 +234,53 @@ final class AppModelTests: XCTestCase {
     XCTAssertEqual(storedDocument.sourceText, "context window")
   }
 
+  func testShortcutSynthesizesVocabularyCardLocallyWithoutCardProvider() async throws {
+    let repository = try SQLiteVocabularyRepository.inMemory()
+    let model = AppModel(
+      selectionReader: StubSelectionReader(selection: CapturedTextSelection(text: "context window", sourceApp: "Tests")),
+      vocabularyRepository: repository,
+      panelPresenter: RecordingPanelPresenter(),
+      explanationProvider: { captured in
+        testWordDocument(text: captured.cleanedText, mode: captured.mode)
+      }
+    )
+
+    await model.handleShortcut()
+
+    let card = try XCTUnwrap(repository.allCards().first)
+    XCTAssertEqual(card.text, "context window")
+    XCTAssertEqual(card.type, .phrase)
+    let stored = try JSONDecoder().decode(LearningExplanationDocument.self, from: Data(card.cardJSON.utf8))
+    XCTAssertNil(stored.wordExplanation)
+    XCTAssertNotNil(stored.vocabularyCard)
+    XCTAssertEqual(stored.vocabularyCard?.front.text, "context window")
+    // Synthesized locally from the WordExplanation's coreMeaning — no second model call.
+    XCTAssertEqual(stored.vocabularyCard?.back.coreMeaning, "Explanation meaning for context window")
+  }
+
+  func testSwitchingToWordModeSavesVocabularyLocally() async throws {
+    let repository = try SQLiteVocabularyRepository.inMemory()
+    let model = AppModel(
+      selectionReader: StubSelectionReader(selection: CapturedTextSelection(text: "Codex works best.", sourceApp: "Tests")),
+      vocabularyRepository: repository,
+      panelPresenter: RecordingPanelPresenter(),
+      explanationProvider: { captured in
+        captured.mode == .sentence
+          ? testSentenceDocument(text: captured.cleanedText)
+          : testWordDocument(text: captured.cleanedText, mode: captured.mode)
+      }
+    )
+
+    await model.handleShortcut()
+    XCTAssertTrue(try repository.allCards().isEmpty, "sentence lookups are not saved")
+
+    await model.explainWithMode(.word)
+
+    let card = try XCTUnwrap(repository.allCards().first)
+    XCTAssertEqual(card.text, "Codex works best.")
+    XCTAssertEqual(card.type, .word)
+  }
+
   func testShortcutPreservesExplanationWhenVocabularyCardGenerationFails() async throws {
     let panelPresenter = RecordingPanelPresenter()
     let repository = try SQLiteVocabularyRepository.inMemory()
