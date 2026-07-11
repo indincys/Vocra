@@ -28,8 +28,6 @@ struct RootView: View {
       window.isOpaque = false
       window.backgroundColor = .clear
     })
-    .environment(\.colorScheme, .light)
-    .preferredColorScheme(.light)
     .tint(VocraTheme.accent)
     .sheet(item: $inspectedCard) { card in
       CardDetailSheet(card: card)
@@ -103,7 +101,7 @@ struct RootView: View {
     .padding(.horizontal, 13)
     .padding(.vertical, 11)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background(Color.white.opacity(0.4), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    .background(VocraTheme.elevatedSurface.opacity(0.5), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     .overlay {
       RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(VocraTheme.hairline, lineWidth: 1)
     }

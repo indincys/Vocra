@@ -45,7 +45,7 @@ struct LearningSection<Content: View>: View {
     }
     .padding(14)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    .background(VocraTheme.elevatedSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     .overlay {
       RoundedRectangle(cornerRadius: 12, style: .continuous)
         .stroke(Color(red: 0.82, green: 0.87, blue: 0.94), lineWidth: 1)

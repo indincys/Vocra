@@ -137,7 +137,6 @@ final class FloatingPanelController: ExplanationPanelPresenting {
     panel.level = .floating
     panel.isOpaque = false
     panel.backgroundColor = .clear
-    panel.appearance = NSAppearance(named: .aqua)
     panel.hasShadow = true
     panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
     panel.isMovableByWindowBackground = true

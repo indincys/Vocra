@@ -74,7 +74,6 @@ struct LookupHUDView: View {
     .padding(.vertical, 12)
     .frame(width: LookupHUDView.size.width, height: LookupHUDView.size.height, alignment: .leading)
     .vocraFloatingGlass(cornerRadius: 16)
-    .environment(\.colorScheme, .light)
   }
 
   static let size = CGSize(width: 300, height: 60)

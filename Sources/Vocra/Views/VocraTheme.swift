@@ -1,3 +1,4 @@
+import AppKit
 import AVFoundation
 import Foundation
 import SwiftUI
@@ -6,6 +7,14 @@ import VocraCore
 // MARK: - oklch color tokens
 
 extension Color {
+  /// A color that resolves to `light` or `dark` based on the viewer's system appearance,
+  /// so a single token adapts across light and dark mode.
+  static func vocraDynamic(_ light: Color, _ dark: Color) -> Color {
+    Color(nsColor: NSColor(name: nil) { appearance in
+      appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? NSColor(dark) : NSColor(light)
+    })
+  }
+
   /// Faithful reproduction of a CSS `oklch(L C H / opacity)` design token.
   ///
   /// The Vocra design system (assets/theme.css) expresses every color in
@@ -41,27 +50,40 @@ extension Color {
 // MARK: - Design tokens
 
 enum VocraTheme {
-  // Neutral base (subtly cool white)
-  static let bg0 = Color(oklch: 0.98, 0.004, 250)
-  static let bg1 = Color(oklch: 0.965, 0.005, 250)
-  static let ink900 = Color(oklch: 0.22, 0.012, 260)
-  static let ink700 = Color(oklch: 0.36, 0.012, 260)
-  static let ink500 = Color(oklch: 0.52, 0.012, 260)
-  static let ink400 = Color(oklch: 0.62, 0.010, 260)
-  static let ink300 = Color(oklch: 0.74, 0.008, 260)
-  static let hairline = Color(oklch: 0.55, 0.01, 260, opacity: 0.14)
-  static let fill = Color(oklch: 0.62, 0.02, 255, opacity: 0.12)
-  static let fillStrong = Color(oklch: 0.62, 0.02, 255, opacity: 0.18)
+  /// Builds a light/dark token pair from two oklch specs.
+  private static func dyn(
+    _ light: (Double, Double, Double),
+    _ dark: (Double, Double, Double),
+    opacity: Double = 1
+  ) -> Color {
+    Color.vocraDynamic(
+      Color(oklch: light.0, light.1, light.2, opacity: opacity),
+      Color(oklch: dark.0, dark.1, dark.2, opacity: opacity)
+    )
+  }
 
-  // Accent (system blue)
-  static let accent = Color(oklch: 0.62, 0.17, 255)
-  static let accentStrong = Color(oklch: 0.55, 0.19, 255)
-  static let accentSoft = Color(oklch: 0.62, 0.17, 255, opacity: 0.12)
-  static let accentInk = Color(oklch: 0.46, 0.16, 255)
-  static let violet = Color(oklch: 0.60, 0.16, 305)
-  static let flame = Color(oklch: 0.63, 0.18, 40)
+  // Neutral base — near-white in light, deep cool charcoal in dark.
+  static let bg0 = dyn((0.98, 0.004, 250), (0.175, 0.008, 260))
+  static let bg1 = dyn((0.965, 0.005, 250), (0.205, 0.008, 260))
+  // Ink scale flips: dark text on light → light text on dark.
+  static let ink900 = dyn((0.22, 0.012, 260), (0.96, 0.006, 260))
+  static let ink700 = dyn((0.36, 0.012, 260), (0.84, 0.008, 260))
+  static let ink500 = dyn((0.52, 0.012, 260), (0.70, 0.010, 260))
+  static let ink400 = dyn((0.62, 0.010, 260), (0.60, 0.010, 260))
+  static let ink300 = dyn((0.74, 0.008, 260), (0.48, 0.010, 260))
+  static let hairline = dyn((0.55, 0.01, 260), (0.80, 0.01, 260), opacity: 0.16)
+  static let fill = dyn((0.62, 0.02, 255), (0.72, 0.02, 255), opacity: 0.13)
+  static let fillStrong = dyn((0.62, 0.02, 255), (0.72, 0.02, 255), opacity: 0.20)
 
-  // Sentence-role palette — light & lively (L≈0.70-0.80, hue varies)
+  // Accent (system blue) — nudged brighter in dark for contrast.
+  static let accent = dyn((0.62, 0.17, 255), (0.68, 0.17, 255))
+  static let accentStrong = dyn((0.55, 0.19, 255), (0.64, 0.19, 255))
+  static let accentSoft = dyn((0.62, 0.17, 255), (0.70, 0.17, 255), opacity: 0.16)
+  static let accentInk = dyn((0.46, 0.16, 255), (0.76, 0.15, 255))
+  static let violet = dyn((0.60, 0.16, 305), (0.70, 0.16, 305))
+  static let flame = dyn((0.63, 0.18, 40), (0.70, 0.18, 40))
+
+  // Sentence-role palette — light & lively (L≈0.70-0.80). Legible on both surfaces.
   static let roleSubject = Color(oklch: 0.71, 0.14, 248)
   static let rolePredicate = Color(oklch: 0.72, 0.15, 22)
   static let roleObject = Color(oklch: 0.74, 0.14, 165)
@@ -70,14 +92,20 @@ enum VocraTheme {
   static let roleConnector = Color(oklch: 0.70, 0.04, 260)
   static let roleTransition = Color(oklch: 0.71, 0.17, 350)
 
-  // Deeper ink variants for text labels on a light background
-  static let roleSubjectInk = Color(oklch: 0.48, 0.15, 248)
-  static let rolePredicateInk = Color(oklch: 0.50, 0.16, 22)
-  static let roleObjectInk = Color(oklch: 0.47, 0.14, 165)
-  static let roleAdverbialInk = Color(oklch: 0.50, 0.13, 75)
-  static let roleClauseInk = Color(oklch: 0.49, 0.16, 300)
-  static let roleConnectorInk = Color(oklch: 0.46, 0.04, 260)
-  static let roleTransitionInk = Color(oklch: 0.50, 0.18, 350)
+  // Deeper ink variants for text labels — darkened on light, lightened on dark.
+  static let roleSubjectInk = dyn((0.48, 0.15, 248), (0.76, 0.13, 248))
+  static let rolePredicateInk = dyn((0.50, 0.16, 22), (0.76, 0.15, 22))
+  static let roleObjectInk = dyn((0.47, 0.14, 165), (0.75, 0.13, 165))
+  static let roleAdverbialInk = dyn((0.50, 0.13, 75), (0.80, 0.13, 82))
+  static let roleClauseInk = dyn((0.49, 0.16, 300), (0.76, 0.15, 300))
+  static let roleConnectorInk = dyn((0.46, 0.04, 260), (0.74, 0.04, 260))
+  static let roleTransitionInk = dyn((0.50, 0.18, 350), (0.77, 0.16, 350))
+
+  // Glass wash / stroke / elevated-thumb surfaces — bright whites on light, muted on dark.
+  static let glassHighlight = Color.vocraDynamic(.white.opacity(0.35), .white.opacity(0.06))
+  static let glassWash = Color.vocraDynamic(.white.opacity(0.18), .white.opacity(0.04))
+  static let glassStroke = Color.vocraDynamic(.white.opacity(0.55), .white.opacity(0.10))
+  static let elevatedSurface = Color.vocraDynamic(.white, Color(oklch: 0.34, 0.01, 260))
 
   static let shadow = Color(red: 20 / 255, green: 22 / 255, blue: 40 / 255)
 
@@ -141,13 +169,13 @@ private struct VocraCardModifier: ViewModifier {
       .background {
         ZStack {
           shape.fill(.regularMaterial)
-          shape.fill(Color.white.opacity(0.18))
+          shape.fill(VocraTheme.glassWash)
           if let tint {
             shape.fill(tint)
           }
           shape.fill(
             LinearGradient(
-              colors: [Color.white.opacity(0.35), Color.white.opacity(0.02)],
+              colors: [VocraTheme.glassHighlight, Color.white.opacity(0.02)],
               startPoint: .top,
               endPoint: .bottom
             )
@@ -156,7 +184,7 @@ private struct VocraCardModifier: ViewModifier {
         }
       }
       .overlay {
-        shape.strokeBorder(Color.white.opacity(0.55), lineWidth: 1)
+        shape.strokeBorder(VocraTheme.glassStroke, lineWidth: 1)
       }
       .overlay {
         shape.strokeBorder(VocraTheme.hairline, lineWidth: 1)
@@ -172,10 +200,10 @@ private struct VocraGlassPanelModifier: ViewModifier {
     return content
       .background {
         shape.fill(.ultraThinMaterial)
-        shape.fill(Color.white.opacity(0.5))
+        shape.fill(VocraTheme.glassWash)
         shape.fill(
           LinearGradient(
-            colors: [Color.white.opacity(0.45), Color.white.opacity(0.04)],
+            colors: [VocraTheme.glassHighlight, Color.white.opacity(0.04)],
             startPoint: .topLeading,
             endPoint: .bottom
           )
@@ -183,7 +211,7 @@ private struct VocraGlassPanelModifier: ViewModifier {
         .blendMode(.softLight)
       }
       .overlay {
-        shape.strokeBorder(Color.white.opacity(0.55), lineWidth: 1)
+        shape.strokeBorder(VocraTheme.glassStroke, lineWidth: 1)
       }
       .clipShape(shape)
   }
@@ -356,7 +384,7 @@ struct VocraSegmented<Value: Hashable>: View {
             .background {
               if selected {
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
-                  .fill(Color.white)
+                  .fill(VocraTheme.elevatedSurface)
               }
             }
         }

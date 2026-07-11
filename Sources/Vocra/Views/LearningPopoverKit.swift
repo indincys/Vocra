@@ -252,7 +252,7 @@ private struct RoleSpan: View {
       ),
       arrowEdge: .bottom
     ) {
-      SegmentTooltip(segment: segment).environment(\.colorScheme, .light)
+      SegmentTooltip(segment: segment)
     }
   }
 }

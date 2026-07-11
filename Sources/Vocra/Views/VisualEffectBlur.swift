@@ -61,7 +61,11 @@ private struct VocraFloatingGlass: ViewModifier {
         // stays clearly see-through.
         shape.fill(
           LinearGradient(
-            colors: [Color.white.opacity(0.22), Color.white.opacity(0.06), Color.white.opacity(0.02)],
+            colors: [
+              Color.vocraDynamic(.white.opacity(0.22), .white.opacity(0.05)),
+              Color.vocraDynamic(.white.opacity(0.06), .white.opacity(0.02)),
+              Color.white.opacity(0.02)
+            ],
             startPoint: .top,
             endPoint: .bottom
           )
@@ -75,7 +79,11 @@ private struct VocraFloatingGlass: ViewModifier {
         // Bright inner top edge → soft lower edge: the liquid-glass rim.
         shape.strokeBorder(
           LinearGradient(
-            colors: [Color.white.opacity(0.85), Color.white.opacity(0.30), Color.white.opacity(0.12)],
+            colors: [
+              Color.vocraDynamic(.white.opacity(0.85), .white.opacity(0.16)),
+              Color.vocraDynamic(.white.opacity(0.30), .white.opacity(0.07)),
+              Color.vocraDynamic(.white.opacity(0.12), .white.opacity(0.03))
+            ],
             startPoint: .top,
             endPoint: .bottom
           ),

@@ -37,7 +37,6 @@ struct ExplanationPanelView: View {
     }
     .frame(minWidth: 360, maxWidth: .infinity, minHeight: 80, maxHeight: .infinity)
     .vocraFloatingGlass(cornerRadius: 24)
-    .environment(\.colorScheme, .light)
     .tint(VocraTheme.accent)
     .onAppear(perform: autoSpeakIfEnabled)
   }

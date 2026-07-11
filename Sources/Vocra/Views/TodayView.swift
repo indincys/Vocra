@@ -116,7 +116,7 @@ struct TodayView: View {
       }
     }
     .overlay {
-      RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Color.white.opacity(0.5), lineWidth: 1)
+      RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(VocraTheme.glassStroke, lineWidth: 1)
     }
     .overlay {
       RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(VocraTheme.hairline, lineWidth: 1)

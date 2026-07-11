@@ -34,7 +34,7 @@ struct CardDetailSheet: View {
       }
       .padding(.horizontal, 18)
       .padding(.vertical, 14)
-      .background(Color.white.opacity(0.6))
+      .background(VocraTheme.elevatedSurface.opacity(0.6))
       .overlay(alignment: .bottom) { Rectangle().fill(VocraTheme.hairline).frame(height: 1) }
 
       ScrollView {
@@ -55,6 +55,5 @@ struct CardDetailSheet: View {
     }
     .frame(width: 640, height: 660)
     .background(.regularMaterial)
-    .environment(\.colorScheme, .light)
   }
 }
