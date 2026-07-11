@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Observation
 import OSLog
@@ -310,15 +311,33 @@ final class AppModel {
     }
     let template = resolvedTemplate(for: kind)
     let resolved = makeExplanationService()
+    let variant = cacheVariant(for: captured, templateBody: template.body)
 
-    if let cached = explanationCache.cached(text: captured.cleanedText, mode: captured.mode, model: resolved.configuration.model) {
+    if let cached = explanationCache.cached(text: captured.cleanedText, mode: captured.mode, model: resolved.configuration.model, variant: variant) {
       shortcutFlowLogger.info("Explanation served from cache; mode: \(captured.mode.rawValue, privacy: .public).")
       return cached
     }
 
     let document = try await resolved.service.explain(captured: captured, template: template, onPartial: onPartial)
-    explanationCache.store(document, text: captured.cleanedText, mode: captured.mode, model: resolved.configuration.model)
+    explanationCache.store(document, text: captured.cleanedText, mode: captured.mode, model: resolved.configuration.model, variant: variant)
     return document
+  }
+
+  /// A stable fingerprint of everything besides text/mode/model that affects the result:
+  /// schema version, learning preferences, and the prompt-template body. Changing any of
+  /// these produces a different cache key so old entries don't shadow new settings.
+  private func cacheVariant(for captured: CapturedText, templateBody: String) -> String {
+    let prefs = settingsStore.loadLearningPreferences().normalized
+    let material = [
+      "v\(LearningExplanationDocument.currentSchemaVersion)",
+      prefs.explanationDepth.rawValue,
+      String(prefs.exampleCount),
+      prefs.chineseStyle.rawValue,
+      prefs.diagramDensity.rawValue,
+      templateBody
+    ].joined(separator: "|")
+    let digest = SHA256.hash(data: Data(material.utf8))
+    return digest.map { String(format: "%02x", $0) }.joined()
   }
 
   /// Builds the streaming callback that progressively renders a sentence as it arrives:
@@ -398,7 +417,10 @@ final class AppModel {
     document.sentenceAnalysis = mergedAnalysis
     latestDocument = document
     refreshPanel()
-    explanationCache.store(document, text: captured.cleanedText, mode: captured.mode, model: resolved.configuration.model)
+    // Re-store the merged document under the same key the main lookup used, so a later
+    // cache hit already includes the diagram + key vocabulary and skips this request.
+    let variant = cacheVariant(for: captured, templateBody: resolvedTemplate(for: .sentenceAnalysisSchema).body)
+    explanationCache.store(document, text: captured.cleanedText, mode: captured.mode, model: resolved.configuration.model, variant: variant)
   }
 
   /// Saves the looked-up word/phrase to the notebook. The card is synthesized locally from
