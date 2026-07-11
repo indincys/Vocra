@@ -56,6 +56,10 @@ public final class UserDefaultsPromptStore: PromptStore, @unchecked Sendable {
     loadAll().sorted { $0.kind.rawValue < $1.kind.rawValue }
   }
 
+  /// Loads the stored templates, transparently migrating on read: unknown/legacy prompt
+  /// kinds and superseded bundled defaults are replaced with the current bundled template,
+  /// and any migration is written back so it happens once. User-edited templates (bodies
+  /// that don't match a known bundled default) are preserved as-is.
   private func loadAll() -> [PromptTemplate] {
     let defaultTemplates = InMemoryPromptStore.defaults().allTemplates()
     guard let data = defaults.data(forKey: key) else {

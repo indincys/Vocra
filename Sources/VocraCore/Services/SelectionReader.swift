@@ -44,7 +44,7 @@ public final class MacSelectionReader: SelectionReader, @unchecked Sendable {
 
     if let selected = readAccessibilitySelection(), !selected.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
       selectionReaderLogger.info(
-        "Accessibility selection succeeded in \(selectionElapsedMilliseconds(from: readStart, clock: clock), privacy: .public) ms; characters: \(selected.text.count, privacy: .public)."
+        "Accessibility selection succeeded in \(elapsedMilliseconds(from: readStart, clock: clock), privacy: .public) ms; characters: \(selected.text.count, privacy: .public)."
       )
       return selected
     }
@@ -52,13 +52,13 @@ public final class MacSelectionReader: SelectionReader, @unchecked Sendable {
     selectionReaderLogger.info("Accessibility selection unavailable; trying clipboard fallback.")
     if let copied = await readClipboardFallback(), !copied.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
       selectionReaderLogger.info(
-        "Clipboard fallback succeeded in \(selectionElapsedMilliseconds(from: readStart, clock: clock), privacy: .public) ms; characters: \(copied.text.count, privacy: .public)."
+        "Clipboard fallback succeeded in \(elapsedMilliseconds(from: readStart, clock: clock), privacy: .public) ms; characters: \(copied.text.count, privacy: .public)."
       )
       return copied
     }
 
     selectionReaderLogger.error(
-      "Selection read failed after \(selectionElapsedMilliseconds(from: readStart, clock: clock), privacy: .public) ms; selected text was empty or unavailable."
+      "Selection read failed after \(elapsedMilliseconds(from: readStart, clock: clock), privacy: .public) ms; selected text was empty or unavailable."
     )
     throw SelectionReaderError.emptySelection
   }
@@ -148,7 +148,7 @@ public final class MacSelectionReader: SelectionReader, @unchecked Sendable {
 
     guard let copied = copiedString else {
       selectionReaderLogger.info(
-        "Clipboard fallback produced no string after \(selectionElapsedMilliseconds(from: fallbackStart, clock: clock), privacy: .public) ms."
+        "Clipboard fallback produced no string after \(elapsedMilliseconds(from: fallbackStart, clock: clock), privacy: .public) ms."
       )
       return nil
     }
@@ -173,9 +173,4 @@ public final class MacSelectionReader: SelectionReader, @unchecked Sendable {
     keyDown?.post(tap: .cghidEventTap)
     keyUp?.post(tap: .cghidEventTap)
   }
-}
-
-private func selectionElapsedMilliseconds(from start: ContinuousClock.Instant, clock: ContinuousClock) -> Int64 {
-  let components = start.duration(to: clock.now).components
-  return components.seconds * 1_000 + components.attoseconds / 1_000_000_000_000_000
 }

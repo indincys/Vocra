@@ -44,12 +44,33 @@ final class AppModel {
   /// Highest partial-content score rendered for the current request; reset per request so
   /// progressive updates only fire when new sections/segments stream in.
   @ObservationIgnored private var lastPartialSignature = 0
+  // Memoized SQLite reads, invalidated by `vocabularyRevision`, so a SwiftUI body
+  // re-evaluation doesn't re-query the database and recompute metrics every time.
+  @ObservationIgnored private var cachedCards: [VocabularyCard]?
+  @ObservationIgnored private var cachedCardsRevision = -1
+  @ObservationIgnored private var cachedMetrics: DashboardMetrics?
+  @ObservationIgnored private var cachedMetricsRevision = -1
+  /// Set when the on-disk database couldn't be opened and an in-memory fallback is in use.
+  var databaseErrorMessage: String?
 
   convenience init() {
+    let repository: SQLiteVocabularyRepository
+    var databaseError: String?
+    do {
+      repository = try SQLiteVocabularyRepository(path: AppModel.databasePath())
+    } catch {
+      // Disk full / corrupt DB file: degrade to an in-memory store instead of crashing at
+      // launch. Review progress won't persist this run — surfaced in the menu bar.
+      databaseError = "无法打开本地词库，本次运行改用临时内存词库，复习进度不会被保存。"
+      // Opening an in-memory SQLite DB doesn't touch disk, so this can't fail from the same
+      // cause; the crash surface shrinks from "any disk problem" to essentially never.
+      repository = try! SQLiteVocabularyRepository.inMemory()
+    }
     self.init(
-      vocabularyRepository: try! SQLiteVocabularyRepository(path: AppModel.databasePath()),
+      vocabularyRepository: repository,
       explanationCache: DiskExplanationCache(directory: AppModel.explanationCacheDirectory())
     )
+    self.databaseErrorMessage = databaseError
   }
 
   init(
@@ -289,12 +310,24 @@ final class AppModel {
 
   var allVocabularyCards: [VocabularyCard] {
     _ = vocabularyRevision
-    return (try? vocabularyRepository.allCards()) ?? []
+    if cachedCardsRevision == vocabularyRevision, let cachedCards {
+      return cachedCards
+    }
+    let cards = (try? vocabularyRepository.allCards()) ?? []
+    cachedCards = cards
+    cachedCardsRevision = vocabularyRevision
+    return cards
   }
 
   var dashboardMetrics: DashboardMetrics {
     _ = vocabularyRevision
-    return DashboardMetrics(cards: allVocabularyCards)
+    if cachedMetricsRevision == vocabularyRevision, let cachedMetrics {
+      return cachedMetrics
+    }
+    let metrics = DashboardMetrics(cards: allVocabularyCards)
+    cachedMetrics = metrics
+    cachedMetricsRevision = vocabularyRevision
+    return metrics
   }
 
   private func explain(
@@ -559,9 +592,4 @@ final class AppModel {
       .appending(path: folderName, directoryHint: .isDirectory)
       .appending(path: "ExplanationCache", directoryHint: .isDirectory)
   }
-}
-
-private func elapsedMilliseconds(from start: ContinuousClock.Instant, clock: ContinuousClock) -> Int64 {
-  let components = start.duration(to: clock.now).components
-  return components.seconds * 1_000 + components.attoseconds / 1_000_000_000_000_000
 }

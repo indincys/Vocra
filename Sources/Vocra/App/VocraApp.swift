@@ -18,9 +18,13 @@ struct VocraApp: App {
   }
 
   var body: some Scene {
-    MenuBarExtra(appName, systemImage: "text.magnifyingglass") {
+    MenuBarExtra {
       if let shortcutRegistrationErrorMessage = appModel.shortcutRegistrationErrorMessage {
         Text(shortcutRegistrationErrorMessage)
+        Divider()
+      }
+      if let databaseErrorMessage = appModel.databaseErrorMessage {
+        Text(databaseErrorMessage)
         Divider()
       }
 
@@ -51,6 +55,17 @@ struct VocraApp: App {
         NSApp.terminate(nil)
       }
       .keyboardShortcut("q")
+    } label: {
+      // The menu-bar item is always mounted, so its onAppear is a reliable place to bridge
+      // SwiftUI's openWindow to the AppDelegate (used for dock-reopen) — instead of doing it
+      // as a side effect inside a computed Scene property.
+      Image(systemName: "text.magnifyingglass")
+        .onAppear {
+          appDelegate.openMainWindow = {
+            openWindow(id: "main")
+            NSApp.activate(ignoringOtherApps: true)
+          }
+        }
     }
 
     mainWindowScene
@@ -61,12 +76,7 @@ struct VocraApp: App {
   }
 
   private var mainWindowScene: some Scene {
-    appDelegate.openMainWindow = {
-      openWindow(id: "main")
-      NSApp.activate(ignoringOtherApps: true)
-    }
-
-    return Window(appName, id: "main") {
+    Window(appName, id: "main") {
       RootView(appModel: appModel)
         .frame(minWidth: 900, minHeight: 620)
     }

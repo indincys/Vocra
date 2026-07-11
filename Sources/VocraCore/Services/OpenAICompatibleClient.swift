@@ -150,7 +150,7 @@ public struct OpenAICompatibleClient: AIClient {
       (lines, response) = try await httpClient.lines(for: request)
     } catch {
       aiClientLogger.error(
-        "AI request failed after \(aiElapsedMilliseconds(from: requestStart, clock: clock), privacy: .public) ms: \(String(describing: error), privacy: .public)"
+        "AI request failed after \(elapsedMilliseconds(from: requestStart, clock: clock), privacy: .public) ms: \(String(describing: error), privacy: .public)"
       )
       throw error
     }
@@ -177,7 +177,7 @@ public struct OpenAICompatibleClient: AIClient {
             if !loggedTimeToFirstToken {
               loggedTimeToFirstToken = true
               aiClientLogger.info(
-                "AI time to first token: \(aiElapsedMilliseconds(from: requestStart, clock: clock), privacy: .public) ms."
+                "AI time to first token: \(elapsedMilliseconds(from: requestStart, clock: clock), privacy: .public) ms."
               )
             }
             aggregated += piece
@@ -190,7 +190,7 @@ public struct OpenAICompatibleClient: AIClient {
       }
     } catch {
       aiClientLogger.error(
-        "AI response stream failed after \(aiElapsedMilliseconds(from: requestStart, clock: clock), privacy: .public) ms: \(String(describing: error), privacy: .public)"
+        "AI response stream failed after \(elapsedMilliseconds(from: requestStart, clock: clock), privacy: .public) ms: \(String(describing: error), privacy: .public)"
       )
       throw error
     }
@@ -201,7 +201,7 @@ public struct OpenAICompatibleClient: AIClient {
     try Task.checkCancellation()
 
     aiClientLogger.info(
-      "AI response received in \(aiElapsedMilliseconds(from: requestStart, clock: clock), privacy: .public) ms; status: \(response.statusCode, privacy: .public); streamed: \(sawStreamedDelta, privacy: .public)."
+      "AI response received in \(elapsedMilliseconds(from: requestStart, clock: clock), privacy: .public) ms; status: \(response.statusCode, privacy: .public); streamed: \(sawStreamedDelta, privacy: .public)."
     )
 
     if sawStreamedDelta {
@@ -227,11 +227,6 @@ public struct OpenAICompatibleClient: AIClient {
       throw AIClientError.invalidResponse
     }
   }
-}
-
-private func aiElapsedMilliseconds(from start: ContinuousClock.Instant, clock: ContinuousClock) -> Int64 {
-  let components = start.duration(to: clock.now).components
-  return components.seconds * 1_000 + components.attoseconds / 1_000_000_000_000_000
 }
 
 private struct ChatCompletionRequest: Encodable {
