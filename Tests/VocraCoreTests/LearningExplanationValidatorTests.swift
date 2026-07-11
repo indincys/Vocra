@@ -2,14 +2,6 @@ import XCTest
 @testable import VocraCore
 
 final class LearningExplanationValidatorTests: XCTestCase {
-  func testRejectsModeMismatch() throws {
-    let document = validSentenceDocument()
-
-    XCTAssertThrowsError(try LearningExplanationValidator().validate(document, expectedMode: .word, expectedSourceText: "Codex works best.")) { error in
-      XCTAssertEqual(error as? LearningExplanationValidationError, .modeMismatch(expected: .word, actual: .sentence))
-    }
-  }
-
   func testRejectsMissingActiveBranch() throws {
     var document = validSentenceDocument()
     document.sentenceAnalysis = nil

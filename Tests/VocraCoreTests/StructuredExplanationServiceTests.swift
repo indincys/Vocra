@@ -28,6 +28,47 @@ final class StructuredExplanationServiceTests: XCTestCase {
     XCTAssertTrue(aiClient.prompts[1].contains("Repair the JSON"))
   }
 
+  func testDecodesJSONWrappedInMarkdownFenceWithoutRepair() async throws {
+    let fenced = "```json\n" + Self.validSentenceJSON + "\n```"
+    let aiClient = StubAIClient(responses: [fenced])
+    let service = StructuredExplanationService(aiClient: aiClient)
+    let captured = CapturedText(originalText: "Codex works best.", cleanedText: "Codex works best.", mode: .sentence, sourceApp: nil)
+    let template = PromptTemplate(kind: .sentenceAnalysisSchema, body: "Analyze {{text}}.")
+
+    let document = try await service.explain(captured: captured, template: template)
+
+    XCTAssertEqual(document.mode, .sentence)
+    XCTAssertEqual(aiClient.prompts.count, 1)
+  }
+
+  func testDecodesJSONWithSurroundingProseWithoutRepair() async throws {
+    let noisy = "Sure, here is the analysis:\n\n" + Self.validSentenceJSON + "\n\nHope that helps!"
+    let aiClient = StubAIClient(responses: [noisy])
+    let service = StructuredExplanationService(aiClient: aiClient)
+    let captured = CapturedText(originalText: "Codex works best.", cleanedText: "Codex works best.", mode: .sentence, sourceApp: nil)
+    let template = PromptTemplate(kind: .sentenceAnalysisSchema, body: "Analyze {{text}}.")
+
+    let document = try await service.explain(captured: captured, template: template)
+
+    XCTAssertEqual(document.mode, .sentence)
+    XCTAssertEqual(aiClient.prompts.count, 1)
+  }
+
+  func testOverwritesModeAndSourceTextLocallyWithoutRepair() async throws {
+    // Model echoes a differently-cased sourceText and a mismatched mode; both are
+    // overwritten with the captured values instead of triggering a repair retry.
+    let aiClient = StubAIClient(responses: [Self.mismatchedSentenceJSON])
+    let service = StructuredExplanationService(aiClient: aiClient)
+    let captured = CapturedText(originalText: "Codex works best.", cleanedText: "Codex works best.", mode: .sentence, sourceApp: nil)
+    let template = PromptTemplate(kind: .sentenceAnalysisSchema, body: "Analyze {{text}}.")
+
+    let document = try await service.explain(captured: captured, template: template)
+
+    XCTAssertEqual(document.mode, .sentence)
+    XCTAssertEqual(document.sourceText, "Codex works best.")
+    XCTAssertEqual(aiClient.prompts.count, 1)
+  }
+
   func testReturnsValidatedVocabularyCardFromAIJSON() async throws {
     let aiClient = StubAIClient(responses: [Self.validVocabularyCardJSON])
     let service = StructuredExplanationService(aiClient: aiClient)
@@ -46,6 +87,27 @@ final class StructuredExplanationServiceTests: XCTestCase {
     "schemaVersion": 1,
     "mode": "sentence",
     "sourceText": "Codex works best.",
+    "language": { "source": "en", "explanation": "zh-Hans" },
+    "sentenceAnalysis": {
+      "headline": { "title": "例句解析", "subtitle": "Sentence Analysis" },
+      "sentence": { "text": "Codex works best.", "segments": [] },
+      "structureBreakdown": { "title": "结构解析", "items": [] },
+      "relationshipDiagram": { "nodes": [], "edges": [] },
+      "logicSummary": { "title": "核心含义", "points": ["主干清晰。"], "coreMeaning": "Codex 效果最好。" },
+      "translation": { "title": "例句翻译", "text": "Codex 效果最好。" },
+      "keyVocabulary": []
+    },
+    "wordExplanation": null,
+    "vocabularyCard": null,
+    "warnings": []
+  }
+  """
+
+  private static let mismatchedSentenceJSON = """
+  {
+    "schemaVersion": 1,
+    "mode": "word",
+    "sourceText": "codex   works best",
     "language": { "source": "en", "explanation": "zh-Hans" },
     "sentenceAnalysis": {
       "headline": { "title": "例句解析", "subtitle": "Sentence Analysis" },

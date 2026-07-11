@@ -41,6 +41,9 @@ private struct APIProfileForm: Identifiable, Equatable {
   var model: String
   var timeout: Double
   var apiKey: String
+  var supportsStructuredOutputs: Bool
+  var temperature: Double?
+  var maxTokens: Int?
 
   init(profile: APIProviderProfile, apiKey: String) {
     self.id = profile.id
@@ -49,6 +52,9 @@ private struct APIProfileForm: Identifiable, Equatable {
     self.model = profile.configuration.model
     self.timeout = profile.configuration.timeoutSeconds
     self.apiKey = apiKey
+    self.supportsStructuredOutputs = profile.configuration.supportsStructuredOutputs
+    self.temperature = profile.configuration.temperature
+    self.maxTokens = profile.configuration.maxTokens
   }
 
   init(id: UUID = UUID(), name: String, configuration: APIConfiguration = .default, apiKey: String = "") {
@@ -58,6 +64,9 @@ private struct APIProfileForm: Identifiable, Equatable {
     self.model = configuration.model
     self.timeout = configuration.timeoutSeconds
     self.apiKey = apiKey
+    self.supportsStructuredOutputs = configuration.supportsStructuredOutputs
+    self.temperature = configuration.temperature
+    self.maxTokens = configuration.maxTokens
   }
 
   var displayName: String {
@@ -65,13 +74,21 @@ private struct APIProfileForm: Identifiable, Equatable {
     return trimmed.isEmpty ? "未命名服务商" : trimmed
   }
 
-  func profile() -> APIProviderProfile? {
+  var configuration: APIConfiguration? {
     guard let url = URL(string: baseURL) else { return nil }
-    return APIProviderProfile(
-      id: id,
-      name: displayName,
-      configuration: APIConfiguration(baseURL: url, model: model, timeoutSeconds: timeout)
+    return APIConfiguration(
+      baseURL: url,
+      model: model,
+      timeoutSeconds: timeout,
+      supportsStructuredOutputs: supportsStructuredOutputs,
+      temperature: temperature,
+      maxTokens: maxTokens
     )
+  }
+
+  func profile() -> APIProviderProfile? {
+    guard let configuration else { return nil }
+    return APIProviderProfile(id: id, name: displayName, configuration: configuration)
   }
 }
 
@@ -254,6 +271,11 @@ struct SettingsView: View {
         rowDivider
         row("请求超时", "\(Int(apiProfiles[index].timeout)) 秒") {
           Stepper("", value: $apiProfiles[index].timeout, in: 5...120, step: 5).labelsHidden()
+        }
+        rowDivider
+        row("强制 JSON 输出", "发送 response_format；个别自建端点不支持时可关闭") {
+          Toggle("", isOn: $apiProfiles[index].supportsStructuredOutputs)
+            .toggleStyle(.switch).labelsHidden().tint(VocraTheme.accent)
         }
       }
       rowDivider
@@ -603,12 +625,7 @@ struct SettingsView: View {
   }
 
   private func currentAPIConfiguration() -> APIConfiguration? {
-    guard let profile = activeProfileForm, let url = URL(string: profile.baseURL) else { return nil }
-    return APIConfiguration(
-      baseURL: url,
-      model: profile.model,
-      timeoutSeconds: profile.timeout
-    )
+    activeProfileForm?.configuration
   }
 
   private func addAPIProfile() {

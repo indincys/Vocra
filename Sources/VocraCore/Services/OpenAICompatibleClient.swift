@@ -88,6 +88,44 @@ public struct OpenAICompatibleClient: AIClient {
       throw AIClientError.missingAPIKey
     }
 
+    // Send the tuned body (structured output / temperature / max_tokens) first. If the
+    // endpoint rejects it with a 4xx, those extras are the most likely culprit, so retry
+    // once with a bare-minimum body before giving up.
+    let includeExtras = configuration.supportsStructuredOutputs
+      || configuration.temperature != nil
+      || configuration.maxTokens != nil
+    do {
+      return try await performStreaming(
+        prompt: prompt,
+        apiKey: apiKey,
+        includeExtras: includeExtras,
+        onPartial: onPartial,
+        clock: clock,
+        requestStart: requestStart
+      )
+    } catch AIClientError.httpStatus(let code) where includeExtras && (400..<500).contains(code) {
+      aiClientLogger.info(
+        "AI request got HTTP \(code, privacy: .public) with structured-output params; retrying once without them."
+      )
+      return try await performStreaming(
+        prompt: prompt,
+        apiKey: apiKey,
+        includeExtras: false,
+        onPartial: onPartial,
+        clock: clock,
+        requestStart: requestStart
+      )
+    }
+  }
+
+  private func performStreaming(
+    prompt: String,
+    apiKey: String,
+    includeExtras: Bool,
+    onPartial: @escaping @Sendable (String) -> Void,
+    clock: ContinuousClock,
+    requestStart: ContinuousClock.Instant
+  ) async throws -> String {
     var request = URLRequest(url: configuration.baseURL.appending(path: "chat/completions"))
     request.httpMethod = "POST"
     request.timeoutInterval = configuration.timeoutSeconds
@@ -96,7 +134,10 @@ public struct OpenAICompatibleClient: AIClient {
     request.httpBody = try JSONEncoder().encode(ChatCompletionRequest(
       model: configuration.model,
       messages: [RequestMessage(role: "user", content: prompt)],
-      stream: true
+      stream: true,
+      responseFormat: includeExtras && configuration.supportsStructuredOutputs ? .jsonObject : nil,
+      temperature: includeExtras ? configuration.temperature : nil,
+      maxTokens: includeExtras ? configuration.maxTokens : nil
     ))
 
     aiClientLogger.info(
@@ -121,6 +162,7 @@ public struct OpenAICompatibleClient: AIClient {
 
     var aggregated = ""
     var sawStreamedDelta = false
+    var loggedTimeToFirstToken = false
     var bufferedBody = ""
     do {
       for try await line in lines {
@@ -132,6 +174,12 @@ public struct OpenAICompatibleClient: AIClient {
           if let chunk = payload.data(using: .utf8),
              let decoded = try? JSONDecoder().decode(StreamChunk.self, from: chunk),
              let piece = decoded.choices.first?.delta?.content {
+            if !loggedTimeToFirstToken {
+              loggedTimeToFirstToken = true
+              aiClientLogger.info(
+                "AI time to first token: \(aiElapsedMilliseconds(from: requestStart, clock: clock), privacy: .public) ms."
+              )
+            }
             aggregated += piece
             sawStreamedDelta = true
             onPartial(aggregated)
@@ -146,6 +194,11 @@ public struct OpenAICompatibleClient: AIClient {
       )
       throw error
     }
+
+    // If the request was cancelled (new lookup started, or panel closed), the stream
+    // finishes with whatever partial text arrived. Surface it as cancellation instead of
+    // returning truncated JSON that would spuriously trigger a repair retry.
+    try Task.checkCancellation()
 
     aiClientLogger.info(
       "AI response received in \(aiElapsedMilliseconds(from: requestStart, clock: clock), privacy: .public) ms; status: \(response.statusCode, privacy: .public); streamed: \(sawStreamedDelta, privacy: .public)."
@@ -185,6 +238,23 @@ private struct ChatCompletionRequest: Encodable {
   let model: String
   let messages: [RequestMessage]
   let stream: Bool
+  var responseFormat: ResponseFormat?
+  var temperature: Double?
+  var maxTokens: Int?
+
+  enum CodingKeys: String, CodingKey {
+    case model
+    case messages
+    case stream
+    case responseFormat = "response_format"
+    case temperature
+    case maxTokens = "max_tokens"
+  }
+
+  struct ResponseFormat: Encodable {
+    let type: String
+    static let jsonObject = ResponseFormat(type: "json_object")
+  }
 }
 
 private struct RequestMessage: Encodable {

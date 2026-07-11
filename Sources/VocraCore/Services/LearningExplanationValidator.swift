@@ -2,8 +2,6 @@ import Foundation
 
 public enum LearningExplanationValidationError: Error, Equatable, CustomStringConvertible, Sendable {
   case unsupportedSchemaVersion(Int)
-  case modeMismatch(expected: ExplanationMode, actual: ExplanationMode)
-  case sourceTextMismatch
   case missingBranch(String)
   case duplicateID(String, String)
   case emptyRequiredField(String)
@@ -13,10 +11,6 @@ public enum LearningExplanationValidationError: Error, Equatable, CustomStringCo
     switch self {
     case .unsupportedSchemaVersion(let version):
       "Unsupported schema version: \(version)."
-    case .modeMismatch(let expected, let actual):
-      "Expected mode \(expected.rawValue), got \(actual.rawValue)."
-    case .sourceTextMismatch:
-      "The response sourceText does not match the selected text."
     case .missingBranch(let branch):
       "Missing required branch: \(branch)."
     case .duplicateID(let scope, let id):
@@ -40,12 +34,9 @@ public struct LearningExplanationValidator: Sendable {
     guard document.schemaVersion == LearningExplanationDocument.currentSchemaVersion else {
       throw LearningExplanationValidationError.unsupportedSchemaVersion(document.schemaVersion)
     }
-    guard document.mode == expectedMode else {
-      throw LearningExplanationValidationError.modeMismatch(expected: expectedMode, actual: document.mode)
-    }
-    guard normalize(document.sourceText) == normalize(expectedSourceText) else {
-      throw LearningExplanationValidationError.sourceTextMismatch
-    }
+    // `mode` and `sourceText` are overwritten with the locally-known values before
+    // validation (see StructuredExplanationService), so they are never re-checked here —
+    // repair retries are reserved for genuine structural problems.
 
     switch expectedMode {
     case .sentence:
@@ -68,12 +59,6 @@ public struct LearningExplanationValidator: Sendable {
   ) throws {
     guard document.schemaVersion == LearningExplanationDocument.currentSchemaVersion else {
       throw LearningExplanationValidationError.unsupportedSchemaVersion(document.schemaVersion)
-    }
-    guard document.mode == expectedMode else {
-      throw LearningExplanationValidationError.modeMismatch(expected: expectedMode, actual: document.mode)
-    }
-    guard normalize(document.sourceText) == normalize(expectedSourceText) else {
-      throw LearningExplanationValidationError.sourceTextMismatch
     }
     guard let vocabularyCard = document.vocabularyCard else {
       throw LearningExplanationValidationError.missingBranch("vocabularyCard")
@@ -184,13 +169,5 @@ public struct LearningExplanationValidator: Sendable {
     for (index, entry) in entries.enumerated() {
       try requireText(entry, field: "\(field)[\(index)]")
     }
-  }
-
-  private func normalize(_ text: String) -> String {
-    text
-      .trimmingCharacters(in: .whitespacesAndNewlines)
-      .components(separatedBy: .whitespacesAndNewlines)
-      .filter { !$0.isEmpty }
-      .joined(separator: " ")
   }
 }

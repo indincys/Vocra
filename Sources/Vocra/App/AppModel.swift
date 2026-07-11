@@ -38,6 +38,7 @@ final class AppModel {
   private let vocabularyCardProvider: VocabularyCardProvider?
   @ObservationIgnored nonisolated(unsafe) private var shortcutChangeObserver: NSObjectProtocol?
   @ObservationIgnored private var activeExplanationRequestID = 0
+  @ObservationIgnored private var activeRequestTask: Task<Void, Never>?
 
   convenience init() {
     self.init(
@@ -101,7 +102,7 @@ final class AppModel {
     currentShortcut = shortcut
     let result = shortcutService.register(shortcut: shortcut) { [weak self] in
       Task { @MainActor in
-        await self?.handleShortcut()
+        self?.launchShortcutFlow()
       }
     }
     switch result {
@@ -116,6 +117,28 @@ final class AppModel {
 
   func pauseShortcutListening(_ paused: Bool) {
     isShortcutPaused = paused
+  }
+
+  /// Cancels any in-flight lookup and starts a fresh shortcut-triggered one. Cancelling
+  /// tears down the streaming URLSession request so an abandoned lookup stops using the
+  /// network instead of running to completion in the background.
+  private func launchShortcutFlow() {
+    activeRequestTask?.cancel()
+    activeRequestTask = Task { @MainActor [weak self] in
+      await self?.handleShortcut()
+    }
+  }
+
+  private func launchModeSwitch(_ mode: ExplanationMode) {
+    activeRequestTask?.cancel()
+    activeRequestTask = Task { @MainActor [weak self] in
+      await self?.explainWithMode(mode)
+    }
+  }
+
+  private func cancelActiveRequest() {
+    activeRequestTask?.cancel()
+    activeRequestTask = nil
   }
 
   func handleShortcut() async {
@@ -347,14 +370,13 @@ final class AppModel {
     panelPresenter.show(
       content: content,
       onSwitchMode: { [weak self] mode in
-        Task { @MainActor in
-          await self?.explainWithMode(mode)
-        }
+        self?.launchModeSwitch(mode)
       },
       onSaveVocabulary: { [weak self] text, type, document in
         self?.addVocabularyEntry(text: text, type: type, document: document)
       },
       onClose: { [weak self] in
+        self?.cancelActiveRequest()
         self?.panelPresenter.close()
       }
     )

@@ -14,6 +14,9 @@ final class FloatingPanelController: ExplanationPanelPresenting {
   /// True while the full result/error panel is on screen — gates click-outside
   /// dismissal so a stray click during the transient loading HUD can't cancel it.
   private var isShowingResult = false
+  /// Latest dismissal handler from `show`. Esc / click-outside route through this so the
+  /// in-flight lookup gets cancelled, not just visually hidden.
+  private var onCloseHandler: (() -> Void)?
   private static let resultSize = CGSize(width: 540, height: 660)
 
   func show(
@@ -22,6 +25,7 @@ final class FloatingPanelController: ExplanationPanelPresenting {
     onSaveVocabulary: @escaping VocabularySaveAction,
     onClose: @escaping () -> Void
   ) {
+    onCloseHandler = onClose
     let isLoading = content.document == nil && content.errorMessage == nil && content.validationErrorMessage == nil
     if isLoading {
       presentLoadingHUD(
@@ -44,6 +48,16 @@ final class FloatingPanelController: ExplanationPanelPresenting {
   func close() {
     isShowingResult = false
     panel?.orderOut(nil)
+  }
+
+  /// User-initiated dismissal (Esc / click-outside). Prefers the `onClose` handler so the
+  /// owning model can cancel the in-flight request; falls back to a plain hide.
+  private func dismiss() {
+    if let onCloseHandler {
+      onCloseHandler()
+    } else {
+      close()
+    }
   }
 
   // MARK: Presentation
@@ -105,7 +119,7 @@ final class FloatingPanelController: ExplanationPanelPresenting {
     panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
     panel.isMovableByWindowBackground = true
     panel.onEscape = { [weak self] in
-      self?.close()
+      self?.dismiss()
     }
     panel.center()
     self.panel = panel
@@ -120,7 +134,7 @@ final class FloatingPanelController: ExplanationPanelPresenting {
         return event
       }
 
-      self?.close()
+      self?.dismiss()
       return nil
     }
 
@@ -130,7 +144,7 @@ final class FloatingPanelController: ExplanationPanelPresenting {
       }
 
       Task { @MainActor in
-        self?.close()
+        self?.dismiss()
       }
     }
 
@@ -141,7 +155,7 @@ final class FloatingPanelController: ExplanationPanelPresenting {
       guard panel?.isVisible == true else { return }
       Task { @MainActor in
         guard let self, self.isShowingResult else { return }
-        self.close()
+        self.dismiss()
       }
     }
   }
