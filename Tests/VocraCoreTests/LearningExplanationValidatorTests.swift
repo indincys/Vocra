@@ -100,7 +100,6 @@ final class LearningExplanationValidatorTests: XCTestCase {
 
   func testRejectsMissingSentenceRequiredTextFields() throws {
     let cases: [(String, (inout LearningExplanationDocument) -> Void)] = [
-      ("sentenceAnalysis.structureBreakdown.title", { $0.sentenceAnalysis?.structureBreakdown.title = " " }),
       ("sentenceAnalysis.relationshipDiagram.nodes.node1.title", {
         $0.sentenceAnalysis?.relationshipDiagram.nodes = [
           RelationshipNode(id: "node1", title: "", text: "Codex")
@@ -111,8 +110,6 @@ final class LearningExplanationValidatorTests: XCTestCase {
           RelationshipNode(id: "node1", title: "Subject", text: "\n")
         ]
       }),
-      ("sentenceAnalysis.logicSummary.title", { $0.sentenceAnalysis?.logicSummary.title = "" }),
-      ("sentenceAnalysis.translation.title", { $0.sentenceAnalysis?.translation.title = "" }),
       ("sentenceAnalysis.translation.text", { $0.sentenceAnalysis?.translation.text = " " })
     ]
 

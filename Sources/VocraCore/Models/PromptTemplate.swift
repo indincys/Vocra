@@ -4,6 +4,9 @@ public enum PromptKind: String, CaseIterable, Codable, Equatable, Sendable {
   case sentenceAnalysisSchema
   case wordExplanationSchema
   case vocabularyCardSchema
+  /// Small follow-up request for a sentence: relationship diagram + key vocabulary.
+  /// Kept out of the first-screen request so the main analysis returns faster.
+  case sentenceSupplementSchema
 }
 
 public struct PromptTemplate: Codable, Equatable, Sendable {

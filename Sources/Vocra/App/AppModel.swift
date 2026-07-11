@@ -188,6 +188,10 @@ final class AppModel {
       latestValidationErrorMessage = nil
       refreshPanel()
 
+      if captured.mode == .sentence {
+        await loadSentenceSupplement(for: captured, requestID: requestID)
+      }
+
       if captured.mode == .word || captured.mode == .phrase {
         let vocabularyType: VocabularyType = captured.mode == .word ? .word : .phrase
         do {
@@ -252,6 +256,9 @@ final class AppModel {
       latestErrorMessage = nil
       latestValidationErrorMessage = nil
       refreshPanel()
+      if adjusted.mode == .sentence {
+        await loadSentenceSupplement(for: adjusted, requestID: requestID)
+      }
     } catch {
       guard isCurrentExplanationRequest(requestID) else { return }
       latestCapturedText = adjusted
@@ -318,15 +325,60 @@ final class AppModel {
     case .word, .phrase: .wordExplanationSchema
     case .sentence: .sentenceAnalysisSchema
     }
-    let template = promptStore.template(for: kind)!
-    let activeProfile = settingsStore.loadAPIProviderSettings().activeProfile
-    let configuration = activeProfile?.configuration ?? settingsStore.loadAPIConfiguration()
+    let template = resolvedTemplate(for: kind)
+    let resolved = makeExplanationService()
 
-    if let cached = explanationCache.cached(text: captured.cleanedText, mode: captured.mode, model: configuration.model) {
+    if let cached = explanationCache.cached(text: captured.cleanedText, mode: captured.mode, model: resolved.configuration.model) {
       shortcutFlowLogger.info("Explanation served from cache; mode: \(captured.mode.rawValue, privacy: .public).")
       return cached
     }
 
+    let document = try await resolved.service.explain(captured: captured, template: template)
+    explanationCache.store(document, text: captured.cleanedText, mode: captured.mode, model: resolved.configuration.model)
+    return document
+  }
+
+  /// Fetches the relationship diagram + key vocabulary that were kept out of the
+  /// first-screen sentence request and merges them into the shown document. Best-effort:
+  /// a failure just leaves those sections empty. Skips work when the sections are already
+  /// present (e.g. served from a previously-merged cache entry).
+  private func loadSentenceSupplement(for captured: CapturedText, requestID: Int) async {
+    guard explanationProvider == nil, captured.mode == .sentence else { return }
+    guard let analysis = latestDocument?.sentenceAnalysis,
+          analysis.relationshipDiagram.edges.isEmpty, analysis.keyVocabulary.isEmpty
+    else { return }
+
+    let template = resolvedTemplate(for: .sentenceSupplementSchema)
+    let resolved = makeExplanationService()
+    guard let supplement = try? await resolved.service.sentenceSupplement(captured: captured, template: template) else { return }
+    guard isCurrentExplanationRequest(requestID),
+          var document = latestDocument,
+          var mergedAnalysis = document.sentenceAnalysis
+    else { return }
+
+    mergedAnalysis.relationshipDiagram = supplement.relationshipDiagram
+    mergedAnalysis.keyVocabulary = supplement.keyVocabulary
+    document.sentenceAnalysis = mergedAnalysis
+    latestDocument = document
+    refreshPanel()
+    explanationCache.store(document, text: captured.cleanedText, mode: captured.mode, model: resolved.configuration.model)
+  }
+
+  private func generateVocabularyCard(for captured: CapturedText) async throws -> LearningExplanationDocument {
+    if let vocabularyCardProvider {
+      return try await vocabularyCardProvider(captured)
+    }
+
+    let template = resolvedTemplate(for: .vocabularyCardSchema)
+    return try await makeExplanationService().service.vocabularyCard(captured: captured, template: template)
+  }
+
+  /// Builds a client + structured-explanation service for the active API profile,
+  /// resolving its per-profile Keychain account. Shared by the main lookup, the sentence
+  /// supplement, and the vocabulary card so the assembly lives in one place.
+  private func makeExplanationService() -> (service: StructuredExplanationService, configuration: APIConfiguration) {
+    let activeProfile = settingsStore.loadAPIProviderSettings().activeProfile
+    let configuration = activeProfile?.configuration ?? settingsStore.loadAPIConfiguration()
     let apiKeyStore = activeProfile.map { KeychainAPIKeyStore(account: $0.keychainAccount) } ?? self.apiKeyStore
     let client = OpenAICompatibleClient(
       configuration: configuration,
@@ -336,28 +388,15 @@ final class AppModel {
       aiClient: client,
       preferences: settingsStore.loadLearningPreferences()
     )
-    let document = try await service.explain(captured: captured, template: template)
-    explanationCache.store(document, text: captured.cleanedText, mode: captured.mode, model: configuration.model)
-    return document
+    return (service, configuration)
   }
 
-  private func generateVocabularyCard(for captured: CapturedText) async throws -> LearningExplanationDocument {
-    if let vocabularyCardProvider {
-      return try await vocabularyCardProvider(captured)
-    }
-
-    let template = promptStore.template(for: .vocabularyCardSchema)!
-    let activeProfile = settingsStore.loadAPIProviderSettings().activeProfile
-    let apiKeyStore = activeProfile.map { KeychainAPIKeyStore(account: $0.keychainAccount) } ?? self.apiKeyStore
-    let client = OpenAICompatibleClient(
-      configuration: activeProfile?.configuration ?? settingsStore.loadAPIConfiguration(),
-      apiKeyProvider: { try apiKeyStore.readAPIKey() }
-    )
-    let service = StructuredExplanationService(
-      aiClient: client,
-      preferences: settingsStore.loadLearningPreferences()
-    )
-    return try await service.vocabularyCard(captured: captured, template: template)
+  /// Resolves a prompt template, falling back to the bundled default if the store somehow
+  /// has no entry for the kind (rather than force-unwrapping and crashing).
+  private func resolvedTemplate(for kind: PromptKind) -> PromptTemplate {
+    promptStore.template(for: kind)
+      ?? InMemoryPromptStore.defaults().template(for: kind)
+      ?? PromptTemplate(kind: kind, body: "Return a single JSON object for {{text}}.")
   }
 
   private func refreshPanel() {

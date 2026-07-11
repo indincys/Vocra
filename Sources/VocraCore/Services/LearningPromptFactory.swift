@@ -30,8 +30,6 @@ public struct LearningPromptFactory: Sendable {
     - Do not add commentary before or after the JSON.
     - Keep every object field as a JSON object, never as a string summary.
     - Keep every list field as a JSON array; use [] when there are no items.
-    - schemaVersion must be \(LearningExplanationDocument.currentSchemaVersion).
-    - sourceText must equal the selected text.
     - explanationDepth: \(preferences.explanationDepth.rawValue)
     - exampleCount: \(preferences.exampleCount)
     - chineseStyle: \(preferences.chineseStyle.rawValue)

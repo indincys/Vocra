@@ -8,15 +8,27 @@ final class PromptStoreTests: XCTestCase {
     XCTAssertNotNil(store.template(for: .sentenceAnalysisSchema))
     XCTAssertNotNil(store.template(for: .wordExplanationSchema))
     XCTAssertNotNil(store.template(for: .vocabularyCardSchema))
-    XCTAssertEqual(PromptKind.allCases, [.sentenceAnalysisSchema, .wordExplanationSchema, .vocabularyCardSchema])
+    XCTAssertNotNil(store.template(for: .sentenceSupplementSchema))
+    XCTAssertEqual(PromptKind.allCases, [.sentenceAnalysisSchema, .wordExplanationSchema, .vocabularyCardSchema, .sentenceSupplementSchema])
   }
 
-  func testDefaultSentencePromptIncludesConcreteNestedSchemaShape() throws {
+  func testDefaultSentencePromptOmitsEchoedAndConstantFields() throws {
     let prompt = try XCTUnwrap(InMemoryPromptStore.defaults().template(for: .sentenceAnalysisSchema)?.body)
 
-    XCTAssertTrue(prompt.contains(#""sentence": { "text": "<selected sentence>", "segments": ["#))
-    XCTAssertTrue(prompt.contains(#""wordExplanation": null"#))
-    XCTAssertTrue(prompt.contains(#""vocabularyCard": null"#))
+    // The trimmed template keeps the analysis shape but no longer echoes the sentence or
+    // demands constant envelope fields.
+    XCTAssertTrue(prompt.contains(#""segments": ["#))
+    XCTAssertTrue(prompt.contains(#""trunk":"#))
+    XCTAssertFalse(prompt.contains(#""sentence": { "text": "<selected sentence>""#))
+    XCTAssertFalse(prompt.contains(#""sourceText""#))
+    XCTAssertFalse(prompt.contains(#""wordExplanation": null"#))
+  }
+
+  func testDefaultSupplementPromptCoversDiagramAndKeyVocabulary() throws {
+    let prompt = try XCTUnwrap(InMemoryPromptStore.defaults().template(for: .sentenceSupplementSchema)?.body)
+
+    XCTAssertTrue(prompt.contains(#""relationshipDiagram""#))
+    XCTAssertTrue(prompt.contains(#""keyVocabulary""#))
   }
 
   func testDefaultSentencePromptRequestsSentenceSpecificSegmentNotes() throws {
@@ -90,7 +102,8 @@ final class PromptStoreTests: XCTestCase {
     XCTAssertNotEqual(store.template(for: .sentenceAnalysisSchema)?.body, legacySentencePrompt)
     XCTAssertEqual(store.template(for: .wordExplanationSchema)?.body, "Custom word schema prompt")
     XCTAssertEqual(store.template(for: .vocabularyCardSchema)?.body, "Custom card schema prompt")
-    XCTAssertTrue(try XCTUnwrap(store.template(for: .sentenceAnalysisSchema)?.body).contains(#""sentence": { "text": "<selected sentence>", "segments": ["#))
+    XCTAssertTrue(try XCTUnwrap(store.template(for: .sentenceAnalysisSchema)?.body).contains(#""trunk":"#))
+    XCTAssertTrue(try XCTUnwrap(store.template(for: .sentenceAnalysisSchema)?.body).contains(#""segments": ["#))
   }
 
   func testUserDefaultsPromptStoreUpgradesPreviousStructuredSentencePrompt() throws {
@@ -114,8 +127,8 @@ final class PromptStoreTests: XCTestCase {
     let store = UserDefaultsPromptStore(defaults: defaults)
     let upgraded = try XCTUnwrap(store.template(for: .sentenceAnalysisSchema)?.body)
 
-    XCTAssertTrue(upgraded.contains(#""labelZh": "在这种情境下""#))
-    XCTAssertFalse(upgraded.contains(#""edges": []"#))
+    XCTAssertTrue(upgraded.contains(#""trunk":"#))
+    XCTAssertFalse(upgraded.contains(#""sentence": { "text": "<selected sentence>""#))
   }
 }
 

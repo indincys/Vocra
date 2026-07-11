@@ -45,10 +45,14 @@ public struct LearningExplanationDocument: Codable, Equatable, Sendable {
 
   public init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
-    schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
-    mode = try container.decode(ExplanationMode.self, forKey: .mode)
-    sourceText = try container.decode(String.self, forKey: .sourceText)
-    language = try container.decode(LearningExplanationLanguage.self, forKey: .language)
+    // schemaVersion / mode / sourceText / language are constants or locally-known values.
+    // The prompts no longer ask the model to echo them, so default them on decode; the
+    // service overwrites mode and sourceText with the captured values afterward.
+    schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? LearningExplanationDocument.currentSchemaVersion
+    mode = try container.decodeIfPresent(ExplanationMode.self, forKey: .mode) ?? .sentence
+    sourceText = try container.decodeIfPresent(String.self, forKey: .sourceText) ?? ""
+    language = try container.decodeIfPresent(LearningExplanationLanguage.self, forKey: .language)
+      ?? LearningExplanationLanguage(source: "en", explanation: "zh-Hans")
     sentenceAnalysis = try container.decodeIfPresent(SentenceAnalysis.self, forKey: .sentenceAnalysis)
     wordExplanation = try container.decodeIfPresent(WordExplanation.self, forKey: .wordExplanation)
     vocabularyCard = try container.decodeIfPresent(StructuredVocabularyCard.self, forKey: .vocabularyCard)
@@ -120,12 +124,21 @@ public struct SentenceAnalysis: Codable, Equatable, Sendable {
 
   public init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
-    headline = try container.decode(LearningHeadline.self, forKey: .headline)
-    sentence = try container.decode(AnalyzedSentence.self, forKey: .sentence)
-    structureBreakdown = try container.decode(StructureBreakdown.self, forKey: .structureBreakdown)
-    relationshipDiagram = try container.decode(RelationshipDiagram.self, forKey: .relationshipDiagram)
-    logicSummary = try container.decode(LogicSummary.self, forKey: .logicSummary)
-    translation = try container.decode(TranslationBlock.self, forKey: .translation)
+    // headline is unused by the UI and the fixed section titles have local fallbacks, so
+    // the prompt omits them; relationshipDiagram / keyVocabulary may arrive in a separate
+    // supplementary request. Everything here decodes-if-present with an empty default.
+    headline = try container.decodeIfPresent(LearningHeadline.self, forKey: .headline)
+      ?? LearningHeadline(title: "", subtitle: "")
+    sentence = try container.decodeIfPresent(AnalyzedSentence.self, forKey: .sentence)
+      ?? AnalyzedSentence(text: "", segments: [])
+    structureBreakdown = try container.decodeIfPresent(StructureBreakdown.self, forKey: .structureBreakdown)
+      ?? StructureBreakdown(title: "", items: [])
+    relationshipDiagram = try container.decodeIfPresent(RelationshipDiagram.self, forKey: .relationshipDiagram)
+      ?? RelationshipDiagram(nodes: [], edges: [])
+    logicSummary = try container.decodeIfPresent(LogicSummary.self, forKey: .logicSummary)
+      ?? LogicSummary(title: "", points: [], coreMeaning: "")
+    translation = try container.decodeIfPresent(TranslationBlock.self, forKey: .translation)
+      ?? TranslationBlock(title: "", text: "")
     keyVocabulary = try container.decodeIfPresent([KeyVocabularyItem].self, forKey: .keyVocabulary) ?? []
   }
 }
@@ -162,7 +175,8 @@ public struct AnalyzedSentence: Codable, Equatable, Sendable {
     }
 
     let container = try decoder.container(keyedBy: CodingKeys.self)
-    text = try container.decode(String.self, forKey: .text)
+    // `text` is filled locally from the captured selection, so the prompt omits it.
+    text = try container.decodeIfPresent(String.self, forKey: .text) ?? ""
     segments = try container.decodeIfPresent([SentenceSegment].self, forKey: .segments) ?? []
   }
 }
@@ -204,9 +218,11 @@ public struct SentenceSegment: Codable, Equatable, Sendable, Identifiable {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     id = try container.decode(String.self, forKey: .id)
     text = try container.decode(String.self, forKey: .text)
-    role = try container.decode(String.self, forKey: .role)
+    // role / labelEn are English-role metadata the UI ignores (it renders labelZh + color),
+    // so the prompt omits them.
+    role = (try container.decodeIfPresent(String.self, forKey: .role)) ?? ""
     labelZh = try container.decode(String.self, forKey: .labelZh)
-    labelEn = try container.decode(String.self, forKey: .labelEn)
+    labelEn = (try container.decodeIfPresent(String.self, forKey: .labelEn)) ?? ""
     color = try container.decode(LearningColorToken.self, forKey: .color)
     note = (try container.decodeIfPresent(String.self, forKey: .note)) ?? ""
   }
@@ -238,7 +254,8 @@ public struct StructureBreakdown: Codable, Equatable, Sendable {
 
   public init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
-    title = try container.decode(String.self, forKey: .title)
+    // `title` is a fixed UI label with a local fallback, so the prompt omits it.
+    title = (try container.decodeIfPresent(String.self, forKey: .title)) ?? ""
     trunk = (try container.decodeIfPresent(String.self, forKey: .trunk)) ?? ""
     trunkZh = (try container.decodeIfPresent(String.self, forKey: .trunkZh)) ?? ""
     items = try container.decodeIfPresent([StructureItem].self, forKey: .items) ?? []
@@ -288,9 +305,10 @@ public struct StructureItem: Codable, Equatable, Sendable, Identifiable {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     id = try container.decode(String.self, forKey: .id)
     text = try container.decode(String.self, forKey: .text)
-    role = try container.decode(String.self, forKey: .role)
+    // role / labelEn are unused by the UI (renders labelZh), so the prompt omits them.
+    role = (try container.decodeIfPresent(String.self, forKey: .role)) ?? ""
     labelZh = try container.decode(String.self, forKey: .labelZh)
-    labelEn = try container.decode(String.self, forKey: .labelEn)
+    labelEn = (try container.decodeIfPresent(String.self, forKey: .labelEn)) ?? ""
     note = (try container.decodeIfPresent(String.self, forKey: .note)) ?? ""
     children = try container.decodeIfPresent([StructureItem].self, forKey: .children) ?? []
   }
@@ -387,9 +405,10 @@ public struct LogicSummary: Codable, Equatable, Sendable {
 
   public init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
-    title = try container.decode(String.self, forKey: .title)
+    // `title` is a fixed UI label with a local fallback, so the prompt omits it.
+    title = (try container.decodeIfPresent(String.self, forKey: .title)) ?? ""
     points = try container.decodeStringList(forKey: .points)
-    coreMeaning = try container.decode(String.self, forKey: .coreMeaning)
+    coreMeaning = (try container.decodeIfPresent(String.self, forKey: .coreMeaning)) ?? ""
   }
 }
 
@@ -400,6 +419,18 @@ public struct TranslationBlock: Codable, Equatable, Sendable {
   public init(title: String, text: String) {
     self.title = title
     self.text = text
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case title
+    case text
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    // `title` is a fixed UI label with a local fallback, so the prompt omits it.
+    title = (try container.decodeIfPresent(String.self, forKey: .title)) ?? ""
+    text = (try container.decodeIfPresent(String.self, forKey: .text)) ?? ""
   }
 }
 

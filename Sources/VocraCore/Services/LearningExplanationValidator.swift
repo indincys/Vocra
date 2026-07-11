@@ -92,9 +92,10 @@ public struct LearningExplanationValidator: Sendable {
   }
 
   private func validateSentenceAnalysis(_ analysis: SentenceAnalysis) throws {
-    try requireText(analysis.headline.title, field: "sentenceAnalysis.headline.title")
-    try requireText(analysis.sentence.text, field: "sentenceAnalysis.sentence.text")
-    try requireText(analysis.structureBreakdown.title, field: "sentenceAnalysis.structureBreakdown.title")
+    // headline, sentence.text, and the fixed section titles are no longer model-generated
+    // (headline is unused; sentence.text is filled locally; titles have UI fallbacks), so
+    // they are not required here. relationshipDiagram / keyVocabulary may be empty on the
+    // first-screen document and arrive via a supplementary request.
     try requireUniqueIDs(analysis.sentence.segments.map(\.id), scope: "sentence.segments")
     for segment in analysis.sentence.segments {
       try requireText(segment.text, field: "sentenceAnalysis.sentence.segments.\(segment.id).text")
@@ -107,8 +108,6 @@ public struct LearningExplanationValidator: Sendable {
     try validateRelationshipEdges(analysis.relationshipDiagram.edges, nodeIDs: Set(analysis.relationshipDiagram.nodes.map(\.id)))
     var structureItemIDs: Set<String> = []
     try validateStructureItems(analysis.structureBreakdown.items, scope: "structureBreakdown.items", seen: &structureItemIDs)
-    try requireText(analysis.logicSummary.title, field: "sentenceAnalysis.logicSummary.title")
-    try requireText(analysis.translation.title, field: "sentenceAnalysis.translation.title")
     try requireText(analysis.translation.text, field: "sentenceAnalysis.translation.text")
   }
 

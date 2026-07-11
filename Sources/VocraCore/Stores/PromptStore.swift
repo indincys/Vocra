@@ -104,95 +104,89 @@ private enum BundledPromptTemplates {
     PromptTemplate(
       kind: .sentenceAnalysisSchema,
       body: """
-      Return a single JSON object for a deep Chinese learning analysis of this English sentence.
-      Use exactly this root shape and JSON value types. Do not replace nested objects with strings.
+      Analyze this English sentence for a Chinese learner and return ONE JSON object.
+      Output ONLY the fields shown below — do NOT echo the original sentence, and do NOT
+      add mode, sourceText, language, titles, headline, or any other field.
 
-      Required root shape:
       {
-        "schemaVersion": 1,
-        "mode": "sentence",
-        "sourceText": "<selected text>",
-        "language": { "source": "en", "explanation": "zh-Hans" },
         "sentenceAnalysis": {
-          "headline": { "title": "例句解析", "subtitle": "Sentence Analysis" },
-          "sentence": { "text": "<selected sentence>", "segments": [
-            { "id": "main-subject", "text": "<exact sentence span>", "role": "subject", "labelZh": "主语", "labelEn": "Subject", "color": "blue", "note": "<这一成分在本句中的具体作用：它修饰/引出/连接了什么，以及在这句话里的含义>" }
-          ] },
-          "structureBreakdown": {
-            "title": "句子主干",
-            "trunk": "<只保留主干后的核心句：主语 + 谓语 (+ 宾语/表语)，去掉所有定语、状语和从句；并列分句各取主干后自然连接>",
-            "trunkZh": "<trunk 的简洁中文意思>",
-            "items": [
-              { "id": "main-clause", "text": "<exact clause span>", "role": "mainClause", "labelZh": "主句", "labelEn": "Main Clause", "note": "<这个分句在本句里承担的具体作用：陈述/让步/条件/原因等，并概括它说了什么>", "children": [] }
+          "sentence": {
+            "segments": [
+              { "id": "main-subject", "text": "<exact contiguous substring of the sentence>", "labelZh": "主语", "color": "blue", "note": "<这一成分在本句中的具体作用：修饰/引出/连接了什么，以及在这句话里的含义>" }
             ]
           },
+          "structureBreakdown": {
+            "trunk": "<只保留主干后的核心句：主语 + 谓语 (+ 宾语/表语)，去掉所有定语、状语和从句>",
+            "trunkZh": "<trunk 的简洁中文意思>",
+            "items": [
+              { "id": "main-clause", "text": "<exact clause span>", "labelZh": "主句", "note": "<这个分句在本句里承担的具体作用：陈述/让步/条件/原因等>", "children": [] }
+            ]
+          },
+          "logicSummary": { "points": ["<Chinese explanation point>"], "coreMeaning": "<Chinese core meaning>" },
+          "translation": { "text": "<Chinese translation>" }
+        }
+      }
+
+      Segment color must be one of: blue, green, orange, purple, pink, neutral.
+      segment.text MUST be an exact, contiguous substring of the original sentence (copy the words and spacing verbatim) so the app can underline it; never rewrite, merge non-adjacent words, or drop words. Mark the backbone densely (subject, predicate/verb, object, complement, key adverbials, connectives, clause boundaries); minor filler may be left unmarked. Group roles by color: subject=blue, predicate/object=green, adverbial/conjunction=orange, clause/connector=purple, contrast (but / yet)=pink, minor=neutral, with a matching labelZh (主语/谓语/宾语/状语/连词/定语从句/主句…).
+      Every segment and structureBreakdown item MUST include a "note" that is specific to THIS sentence (what it modifies, introduces, connects, or contrasts, and its meaning here) — teach it like a tutor, not a generic textbook definition. Keep every note ≤ 40 Chinese characters.
+      structureBreakdown.trunk is the sentence stripped to its core so the learner sees the skeleton; trunkZh is its short Chinese meaning.
+      Use 3-8 segments for diagramDensity full, and 1-4 for diagramDensity simple.
+      Sentence: {{text}}
+      """
+    ),
+    PromptTemplate(
+      kind: .wordExplanationSchema,
+      body: """
+      Explain this English {{type}} for a Chinese learner and return ONE JSON object.
+      Output ONLY the wordExplanation object below — do NOT add mode, sourceText,
+      language, or any other top-level field.
+
+      {
+        "wordExplanation": {
+          "term": "<selected word or phrase>",
+          "pronunciation": "<IPA, or null>",
+          "partOfSpeech": "<part of speech or phrase type>",
+          "coreMeaning": "<Chinese core meaning>",
+          "contextualMeaning": "<Chinese contextual meaning>",
+          "usageNotes": ["<Chinese usage note, ≤40字>"],
+          "collocations": ["<common collocation>"],
+          "examples": [
+            { "sentence": "<English example sentence>", "translation": "<Chinese translation>", "note": null }
+          ],
+          "commonMistakes": ["<Chinese common mistake, ≤40字>"]
+        }
+      }
+
+      If pronunciation is not useful for a phrase, use null. Keep examples as objects with sentence, translation, and note; note may be null or a short Chinese string. Keep each usageNote and commonMistake ≤ 40 Chinese characters.
+      Text: {{text}}
+      """
+    ),
+    PromptTemplate(
+      kind: .sentenceSupplementSchema,
+      body: """
+      For this English sentence, return ONE JSON object with only a relationship diagram
+      and key vocabulary for a Chinese learner. Output ONLY the fields shown below.
+
+      {
+        "sentenceAnalysis": {
           "relationshipDiagram": {
             "nodes": [
               { "id": "main", "title": "主句（主干）", "text": "<main clause>" },
               { "id": "modifier", "title": "修饰/条件", "text": "<modifier or clause>" }
             ],
             "edges": [
-              { "from": "modifier", "to": "main", "labelZh": "在这种情境下", "labelEn": "condition / context" }
+              { "from": "modifier", "to": "main", "labelZh": "在这种情境下" }
             ]
           },
-          "logicSummary": { "title": "句子逻辑与核心含义", "points": ["<Chinese explanation point>"], "coreMeaning": "<Chinese core meaning>" },
-          "translation": { "title": "例句翻译", "text": "<Chinese translation>" },
           "keyVocabulary": [
-            { "term": "<important word or phrase>", "meaning": "<Chinese meaning>", "note": "<Chinese usage note>" }
+            { "term": "<important word or phrase>", "meaning": "<Chinese meaning>", "note": "<Chinese usage note, ≤40字>" }
           ]
-        },
-        "wordExplanation": null,
-        "vocabularyCard": null,
-        "warnings": []
+        }
       }
 
-      Segment colors must be one of: blue, green, orange, purple, pink, neutral.
-      sentence.text MUST be the complete selected sentence(s) copied verbatim, including punctuation — never shortened, paraphrased, or split into a fragment.
-      sentence.segments mark up the grammatically meaningful constituents in reading order — subject, predicate/verb, object, complement, key adverbials, connectives (and / but / that / which …) and each clause boundary. Each segment.text MUST be an exact, contiguous substring of sentence.text (copy the words and spacing verbatim) so the app can find and underline it inside the original sentence; never rewrite words, merge non-adjacent words, or drop words. Mark the backbone densely; minor filler between marked spans may be left unmarked. Use color to group roles: subject=blue, predicate/object=green, adverbial/conjunction=orange, clause/connector=purple, contrast (but / yet)=pink, minor=neutral, and give a matching labelZh (主语/谓语/宾语/状语/连词/定语从句/主句…).
-      Every sentence.segments item MUST include a "note": a concise Chinese explanation of that exact span's role IN THIS sentence — what it modifies, introduces, connects, or contrasts, and what it means here. Be specific to this sentence and teach it like a tutor; do NOT give a generic textbook definition of the grammatical role. For example "before 在这里引出时间状语从句，说明拦截发生在请求到达控制器之前" rather than "状语用来修饰动词".
-      structureBreakdown.trunk MUST be the sentence stripped down to its core (remove all 定语/状语/从句, keep subject + verb + object/complement), and structureBreakdown.trunkZh its short Chinese meaning, so the learner instantly sees the skeleton.
-      Every structureBreakdown.items item MUST include a "note" stating what that clause/structure does in this sentence (陈述/转折/给出条件/修饰哪部分…), specific to this sentence rather than a generic definition.
-      Every relationshipDiagram edge must include from, to, labelZh, and labelEn.
-      Use 3-8 sentence.segments for diagramDensity full, and 1-4 segments for diagramDensity simple.
-      Text: {{text}}
-      Source app: {{sourceApp}}
-      Created at: {{createdAt}}
-      """
-    ),
-    PromptTemplate(
-      kind: .wordExplanationSchema,
-      body: """
-      Return a single JSON object for a deep Chinese explanation of this English {{type}}.
-      Use exactly this root shape and JSON value types. Do not replace nested objects or arrays with strings.
-
-      Required root shape:
-      {
-        "schemaVersion": 1,
-        "mode": "{{type}}",
-        "sourceText": "<selected text>",
-        "language": { "source": "en", "explanation": "zh-Hans" },
-        "sentenceAnalysis": null,
-        "wordExplanation": {
-          "term": "<selected word or phrase>",
-          "pronunciation": null,
-          "partOfSpeech": "<part of speech or phrase type>",
-          "coreMeaning": "<Chinese core meaning>",
-          "contextualMeaning": "<Chinese contextual meaning>",
-          "usageNotes": ["<Chinese usage note>"],
-          "collocations": ["<common collocation>"],
-          "examples": [
-            { "sentence": "<English example sentence>", "translation": "<Chinese translation>", "note": null }
-          ],
-          "commonMistakes": ["<Chinese common mistake>"]
-        },
-        "vocabularyCard": null,
-        "warnings": []
-      }
-
-      If pronunciation is not useful for a phrase, use null. Keep examples as objects with sentence, translation, and note; note may be null or a non-empty Chinese string.
-      Text: {{text}}
-      Source app: {{sourceApp}}
-      Created at: {{createdAt}}
+      Use 2-5 nodes capturing the sentence's main parts. Every edge has from and to referencing node ids, plus a Chinese labelZh describing how they relate. keyVocabulary lists the 2-5 most useful words/phrases from the sentence; keep each note ≤ 40 Chinese characters.
+      Sentence: {{text}}
       """
     ),
     PromptTemplate(
@@ -282,15 +276,20 @@ private enum BundledPromptTemplates {
   private static func isPreviousStructuredBundledDefault(kind: PromptKind, normalizedBody: String) -> Bool {
     switch kind {
     case .sentenceAnalysisSchema:
-      // Matches any earlier Vocra-bundled structured sentence default that
-      // predates the "trunk" / structure-note fields, so unedited users upgrade.
+      // Every earlier Vocra-bundled structured sentence default echoed the source
+      // sentence as `"sentence": { "text": ... }`; the current default no longer does.
+      // Matching that echo upgrades both the pre-trunk and trunk-era bundled defaults for
+      // users who never hand-edited the template.
       normalizedBody.contains("Use exactly this root shape and JSON value types")
         && normalizedBody.contains(#""sentence": { "text": "<selected sentence>", "segments": ["#)
         && normalizedBody.contains("Segment colors must be one of")
-        && !normalizedBody.contains(#""trunk""#)
     case .wordExplanationSchema:
-      false
-    case .vocabularyCardSchema:
+      // The previous structured word default echoed the full envelope (a null
+      // vocabularyCard sibling); the current default omits it.
+      normalizedBody.contains("Use exactly this root shape and JSON value types")
+        && normalizedBody.contains(#""wordExplanation": {"#)
+        && normalizedBody.contains(#""vocabularyCard": null"#)
+    case .vocabularyCardSchema, .sentenceSupplementSchema:
       false
     }
   }
