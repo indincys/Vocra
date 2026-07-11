@@ -41,4 +41,22 @@ final class TextClassifierTests: XCTestCase {
     XCTAssertEqual(result.cleanedText, "[MASK]")
     XCTAssertEqual(result.mode, .word)
   }
+
+  func testTrimsEdgePunctuationFromWord() {
+    let result = classifier.classify("however,")
+    XCTAssertEqual(result.mode, .word)
+    XCTAssertEqual(result.cleanedText, "however")
+  }
+
+  func testTrimsEdgePunctuationFromPhrase() {
+    let result = classifier.classify("machine learning.")
+    XCTAssertEqual(result.mode, .phrase)
+    XCTAssertEqual(result.cleanedText, "machine learning")
+  }
+
+  func testKeepsSentencePunctuation() {
+    let result = classifier.classify("It failed, again.")
+    XCTAssertEqual(result.mode, .sentence)
+    XCTAssertEqual(result.cleanedText, "It failed, again.")
+  }
 }

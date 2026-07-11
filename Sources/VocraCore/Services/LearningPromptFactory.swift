@@ -17,12 +17,20 @@ public struct LearningPromptFactory: Sendable {
       text: captured.cleanedText,
       type: captured.mode,
       sourceApp: captured.sourceApp,
-      surroundingContext: "",
+      surroundingContext: captured.surroundingContext,
       createdAt: createdAt
     )
     let rendered = try renderer.render(template, context: context)
+    let contextBlock = captured.surroundingContext.isEmpty ? "" : """
+
+
+    Surrounding context (the selection appears inside this text — use it only to disambiguate meaning in context; do NOT translate or analyze the context itself):
+    \"\"\"
+    \(captured.surroundingContext)
+    \"\"\"
+    """
     return """
-    \(rendered)
+    \(rendered)\(contextBlock)
 
     Contract:
     - Return exactly one single JSON object.

@@ -4,6 +4,7 @@ struct ExplanationPanelContent: Equatable {
   let capturedText: CapturedText?
   let document: LearningExplanationDocument?
   let errorMessage: String?
+  var errorRecovery: LookupErrorRecovery? = nil
   let validationErrorMessage: String?
 }
 

@@ -18,6 +18,7 @@ final class AppModel {
   var latestCapturedText: CapturedText?
   var latestDocument: LearningExplanationDocument?
   var latestErrorMessage: String?
+  var latestErrorRecovery: LookupErrorRecovery?
   var latestValidationErrorMessage: String?
   var isShortcutPaused = false
   var currentShortcut: KeyboardShortcut
@@ -158,16 +159,25 @@ final class AppModel {
     shortcutFlowLogger.info("Shortcut handling started.")
     do {
       latestErrorMessage = nil
+      latestErrorRecovery = nil
       latestValidationErrorMessage = nil
       latestDocument = nil
       latestCapturedText = nil
+      // Show the HUD the instant the shortcut fires, before reading the selection. The
+      // clipboard fallback can take 200ms+, and without this the user sees nothing and
+      // wonders whether the shortcut registered.
+      refreshPanel()
 
       let selectionStart = clock.now
       let selection = try await selectionReader.readSelection()
       shortcutFlowLogger.info(
         "Selection read in \(elapsedMilliseconds(from: selectionStart, clock: clock), privacy: .public) ms; characters: \(selection.text.count, privacy: .public); source: \(selection.sourceApp ?? "Unknown App", privacy: .public)."
       )
-      let captured = classifier.classify(selection.text, sourceApp: selection.sourceApp)
+      let captured = classifier.classify(
+        selection.text,
+        sourceApp: selection.sourceApp,
+        surroundingContext: selection.surroundingContext
+      )
       guard isCurrentExplanationRequest(requestID) else {
         shortcutFlowLogger.info("Ignoring stale shortcut selection result.")
         return
@@ -189,6 +199,7 @@ final class AppModel {
       latestCapturedText = captured
       latestDocument = document
       latestErrorMessage = nil
+      latestErrorRecovery = nil
       latestValidationErrorMessage = nil
       refreshPanel()
 
@@ -208,13 +219,7 @@ final class AppModel {
       }
       latestCapturedText = capturedForError
       latestDocument = nil
-      if let validationError = error as? LearningExplanationValidationError {
-        latestValidationErrorMessage = validationError.description
-        latestErrorMessage = nil
-      } else {
-        latestErrorMessage = String(describing: error)
-        latestValidationErrorMessage = nil
-      }
+      applyError(error)
       refreshPanel()
       shortcutFlowLogger.error(
         "Shortcut handling failed after \(elapsedMilliseconds(from: flowStart, clock: clock), privacy: .public) ms: \(String(describing: error), privacy: .public)"
@@ -232,6 +237,7 @@ final class AppModel {
       latestCapturedText = adjusted
       latestDocument = document
       latestErrorMessage = nil
+      latestErrorRecovery = nil
       latestValidationErrorMessage = nil
       refreshPanel()
       if adjusted.mode == .sentence {
@@ -244,13 +250,7 @@ final class AppModel {
       guard isCurrentExplanationRequest(requestID) else { return }
       latestCapturedText = adjusted
       latestDocument = nil
-      if let validationError = error as? LearningExplanationValidationError {
-        latestValidationErrorMessage = validationError.description
-        latestErrorMessage = nil
-      } else {
-        latestErrorMessage = String(describing: error)
-        latestValidationErrorMessage = nil
-      }
+      applyError(error)
       refreshPanel()
     }
   }
@@ -377,6 +377,7 @@ final class AppModel {
     latestCapturedText = captured
     latestDocument = promoted
     latestErrorMessage = nil
+    latestErrorRecovery = nil
     latestValidationErrorMessage = nil
     refreshPanel()
   }
@@ -495,11 +496,27 @@ final class AppModel {
       ?? PromptTemplate(kind: kind, body: "Return a single JSON object for {{text}}.")
   }
 
+  /// Stores an error for display: validation errors stay as-is (structural feedback),
+  /// everything else is mapped to a plain-Chinese message plus an optional recovery action.
+  private func applyError(_ error: Error) {
+    if let validationError = error as? LearningExplanationValidationError {
+      latestValidationErrorMessage = validationError.description
+      latestErrorMessage = nil
+      latestErrorRecovery = nil
+    } else {
+      let presentation = LookupErrorPresenter.present(error)
+      latestErrorMessage = presentation.message
+      latestErrorRecovery = presentation.recovery
+      latestValidationErrorMessage = nil
+    }
+  }
+
   private func refreshPanel() {
     let content = ExplanationPanelContent(
       capturedText: latestCapturedText,
       document: latestDocument,
       errorMessage: latestErrorMessage,
+      errorRecovery: latestErrorRecovery,
       validationErrorMessage: latestValidationErrorMessage
     )
     panelPresenter.show(

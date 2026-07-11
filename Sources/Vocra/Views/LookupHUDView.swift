@@ -47,10 +47,14 @@ struct LookupHUDView: View {
           .foregroundStyle(VocraTheme.accent)
           .symbolEffect(.pulse, options: .repeating)
         HStack(spacing: 0) {
-          Text("正在\(modeLabel)")
-            .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(VocraTheme.ink900)
-          if !progress.term.isEmpty {
+          if progress.term.isEmpty {
+            Text("正在读取选中内容…")
+              .font(.system(size: 13, weight: .semibold))
+              .foregroundStyle(VocraTheme.ink900)
+          } else {
+            Text("正在\(modeLabel)")
+              .font(.system(size: 13, weight: .semibold))
+              .foregroundStyle(VocraTheme.ink900)
             Text(" 「\(progress.term)」")
               .font(.system(size: 13, weight: .semibold))
               .foregroundStyle(VocraTheme.accentInk)

@@ -6,6 +6,7 @@ struct ExplanationPanelView: View {
   let capturedText: CapturedText?
   let document: LearningExplanationDocument?
   let errorMessage: String?
+  var errorRecovery: LookupErrorRecovery? = nil
   let validationErrorMessage: String?
   let onSwitchMode: (ExplanationMode) -> Void
   var onSaveVocabulary: VocabularySaveAction? = nil
@@ -91,7 +92,7 @@ struct ExplanationPanelView: View {
   @ViewBuilder
   private var content: some View {
     if let errorMessage {
-      errorText(errorMessage, color: VocraTheme.rolePredicateInk)
+      errorText(errorMessage, color: VocraTheme.rolePredicateInk, recovery: errorRecovery)
     } else if let validationErrorMessage {
       errorText(validationErrorMessage, color: VocraTheme.roleAdverbialInk)
     } else if let document {
@@ -112,14 +113,33 @@ struct ExplanationPanelView: View {
     }
   }
 
-  private func errorText(_ message: String, color: Color) -> some View {
+  private func errorText(_ message: String, color: Color, recovery: LookupErrorRecovery? = nil) -> some View {
     ScrollView {
-      Text(message)
-        .font(.system(size: 13))
-        .foregroundStyle(color)
-        .textSelection(.enabled)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(18)
+      VStack(alignment: .leading, spacing: 12) {
+        Text(message)
+          .font(.system(size: 13))
+          .foregroundStyle(color)
+          .textSelection(.enabled)
+          .frame(maxWidth: .infinity, alignment: .leading)
+        if let recovery {
+          Button(recovery.label) { performRecovery(recovery) }
+            .buttonStyle(VocraAccentButtonStyle(horizontalPadding: 14, verticalPadding: 6))
+        }
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .padding(18)
+    }
+  }
+
+  private func performRecovery(_ recovery: LookupErrorRecovery) {
+    switch recovery {
+    case .openSettings:
+      NSApp.activate(ignoringOtherApps: true)
+      NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+    case .openAccessibilitySettings:
+      if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+        NSWorkspace.shared.open(url)
+      }
     }
   }
 

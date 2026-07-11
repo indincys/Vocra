@@ -10,13 +10,30 @@ public struct TextClassifier: Sendable {
 
   public init() {}
 
-  public func classify(_ text: String, sourceApp: String? = nil) -> CapturedText {
+  public func classify(_ text: String, sourceApp: String? = nil, surroundingContext: String = "") -> CapturedText {
     let hadLineBreak = text.contains { character in
       character.isNewline
     }
     let cleaned = clean(text)
     let mode = classifyCleanedText(cleaned, hadLineBreak: hadLineBreak)
-    return CapturedText(originalText: text, cleanedText: cleaned, mode: mode, sourceApp: sourceApp)
+    // For a word/phrase, strip edge punctuation (e.g. the comma in "however,") so the
+    // panel title, TTS, cache key, and notebook dedup all see the bare term. Sentences
+    // keep their punctuation — classification above depends on it.
+    let finalText = (mode == .word || mode == .phrase) ? trimmingEdgePunctuation(cleaned) : cleaned
+    return CapturedText(
+      originalText: text,
+      cleanedText: finalText,
+      mode: mode,
+      sourceApp: sourceApp,
+      surroundingContext: surroundingContext
+    )
+  }
+
+  private func trimmingEdgePunctuation(_ text: String) -> String {
+    let punctuation = CharacterSet(charactersIn: ".,;:!?…-–—、，。；：！？·")
+    let trimmed = text.trimmingCharacters(in: punctuation)
+    // Never trim the term away entirely (e.g. a lone "?!"); fall back to the input.
+    return trimmed.isEmpty ? text : trimmed
   }
 
   public func clean(_ text: String) -> String {

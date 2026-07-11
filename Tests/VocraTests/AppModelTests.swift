@@ -4,7 +4,7 @@ import VocraCore
 
 @MainActor
 final class AppModelTests: XCTestCase {
-  func testShortcutDoesNotPresentPanelBeforeSelectionReadCompletes() async throws {
+  func testShortcutShowsReadingHUDImmediatelyBeforeSelectionCompletes() async throws {
     let panelPresenter = RecordingPanelPresenter()
     let selectionReader = BlockingSelectionReader(selection: CapturedTextSelection(text: "inconsistently", sourceApp: "Tests"))
     let explanationGate = AsyncGate()
@@ -23,16 +23,18 @@ final class AppModelTests: XCTestCase {
 
     let task = Task { await model.handleShortcut() }
 
-    await Task.yield()
-    XCTAssertTrue(panelPresenter.contents.isEmpty)
-
-    selectionReader.release()
-    let didShowCapturedLoadingPanel = await waitForPanelContents(panelPresenter, count: 1)
-    XCTAssertTrue(didShowCapturedLoadingPanel)
-    XCTAssertEqual(panelPresenter.contents.first?.capturedText?.cleanedText, "inconsistently")
+    // A HUD with no captured term yet appears immediately, before the selection is read.
+    let shownReadingHUD = await waitForPanelContents(panelPresenter, count: 1)
+    XCTAssertTrue(shownReadingHUD)
+    XCTAssertNil(panelPresenter.contents.first?.capturedText)
     XCTAssertNil(panelPresenter.contents.first?.document)
     XCTAssertNil(panelPresenter.contents.first?.errorMessage)
-    XCTAssertNil(panelPresenter.contents.first?.validationErrorMessage)
+
+    selectionReader.release()
+    let showedCapturedTerm = await waitForCondition {
+      panelPresenter.contents.contains { $0.capturedText?.cleanedText == "inconsistently" }
+    }
+    XCTAssertTrue(showedCapturedTerm)
 
     explanationGate.open()
     await task.value
@@ -56,15 +58,13 @@ final class AppModelTests: XCTestCase {
 
     let task = Task { await model.handleShortcut() }
 
-    let didShowCapturedLoadingPanel = await waitForPanelContents(panelPresenter, count: 1)
-    XCTAssertTrue(didShowCapturedLoadingPanel)
-    guard panelPresenter.contents.count >= 1 else {
-      return
+    let didShowCapturedLoadingPanel = await waitForCondition {
+      panelPresenter.contents.contains {
+        $0.capturedText?.cleanedText == "inconsistently" && $0.document == nil
+          && $0.errorMessage == nil && $0.validationErrorMessage == nil
+      }
     }
-    XCTAssertEqual(panelPresenter.contents[0].capturedText?.cleanedText, "inconsistently")
-    XCTAssertNil(panelPresenter.contents[0].document)
-    XCTAssertNil(panelPresenter.contents[0].errorMessage)
-    XCTAssertNil(panelPresenter.contents[0].validationErrorMessage)
+    XCTAssertTrue(didShowCapturedLoadingPanel)
 
     explanationGate.open()
     await task.value
@@ -104,14 +104,16 @@ final class AppModelTests: XCTestCase {
     )
 
     let firstTask = Task { await model.handleShortcut() }
-    let didShowFirstLoadingPanel = await waitForPanelContents(panelPresenter, count: 1)
+    let didShowFirstLoadingPanel = await waitForCondition {
+      panelPresenter.contents.contains { $0.capturedText?.cleanedText == "ambitious" }
+    }
     XCTAssertTrue(didShowFirstLoadingPanel)
-    XCTAssertEqual(panelPresenter.contents.last?.capturedText?.cleanedText, "ambitious")
 
     let secondTask = Task { await model.handleShortcut() }
-    let didShowSecondLoadingPanel = await waitForPanelContents(panelPresenter, count: 2)
+    let didShowSecondLoadingPanel = await waitForCondition {
+      panelPresenter.contents.contains { $0.capturedText?.cleanedText == "bullet" }
+    }
     XCTAssertTrue(didShowSecondLoadingPanel)
-    XCTAssertEqual(panelPresenter.contents.last?.capturedText?.cleanedText, "bullet")
 
     secondExplanationGate.open()
     await secondTask.value
@@ -175,9 +177,14 @@ final class AppModelTests: XCTestCase {
 
     await model.handleShortcut()
 
-    XCTAssertEqual(panelPresenter.contents.count, 2)
+    // reading HUD → captured HUD → error panel
+    XCTAssertEqual(panelPresenter.contents.count, 3)
     XCTAssertEqual(panelPresenter.contents.last?.capturedText?.cleanedText, "inconsistently")
-    XCTAssertEqual(panelPresenter.contents.last?.errorMessage, String(describing: TestError.explanationFailed))
+    // Unknown errors get a generic mapped message rather than a raw type dump.
+    XCTAssertEqual(
+      panelPresenter.contents.last?.errorMessage,
+      LookupErrorPresenter.present(TestError.explanationFailed).message
+    )
     XCTAssertNil(panelPresenter.contents.last?.validationErrorMessage)
   }
 
@@ -192,7 +199,8 @@ final class AppModelTests: XCTestCase {
 
     await model.handleShortcut()
 
-    XCTAssertEqual(panelPresenter.contents.count, 2)
+    // reading HUD → captured HUD → validation-error panel
+    XCTAssertEqual(panelPresenter.contents.count, 3)
     XCTAssertEqual(panelPresenter.contents.last?.capturedText?.cleanedText, "Codex works best.")
     XCTAssertNil(panelPresenter.contents.last?.errorMessage)
     XCTAssertEqual(

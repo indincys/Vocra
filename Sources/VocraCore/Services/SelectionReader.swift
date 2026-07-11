@@ -15,10 +15,14 @@ public protocol SelectionReader: Sendable {
 public struct CapturedTextSelection: Equatable, Sendable {
   public let text: String
   public let sourceApp: String?
+  /// Text around the selection (selection included), for meaning disambiguation. Empty when
+  /// unavailable.
+  public let surroundingContext: String
 
-  public init(text: String, sourceApp: String?) {
+  public init(text: String, sourceApp: String?, surroundingContext: String = "") {
     self.text = text
     self.sourceApp = sourceApp
+    self.surroundingContext = surroundingContext
   }
 }
 
@@ -73,7 +77,44 @@ public final class MacSelectionReader: SelectionReader, @unchecked Sendable {
     }
 
     guard let text = selectedValue as? String else { return nil }
-    return CapturedTextSelection(text: text, sourceApp: NSWorkspace.shared.frontmostApplication?.localizedName)
+    return CapturedTextSelection(
+      text: text,
+      sourceApp: NSWorkspace.shared.frontmostApplication?.localizedName,
+      surroundingContext: surroundingContext(for: focused, selectedText: text)
+    )
+  }
+
+  /// Reads up to ~160 characters on either side of the selection from the focused element's
+  /// full value, returning the selection embedded in its surrounding text. Best-effort: many
+  /// elements (e.g. web areas) don't expose a range, in which case this returns "".
+  private func surroundingContext(for element: AXUIElement, selectedText: String) -> String {
+    var valueRef: AnyObject?
+    guard AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &valueRef) == .success,
+          let fullText = valueRef as? String, !fullText.isEmpty
+    else { return "" }
+
+    var rangeRef: AnyObject?
+    guard AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &rangeRef) == .success,
+          CFGetTypeID(rangeRef as CFTypeRef) == AXValueGetTypeID()
+    else { return "" }
+
+    var selectedRange = CFRange()
+    guard AXValueGetValue(rangeRef as! AXValue, .cfRange, &selectedRange) else { return "" }
+
+    let fullString = fullText as NSString
+    let selectionStart = selectedRange.location
+    let selectionEnd = selectedRange.location + selectedRange.length
+    guard selectionStart >= 0, selectionEnd <= fullString.length, selectionStart <= selectionEnd else { return "" }
+
+    let window = 160
+    let contextStart = max(0, selectionStart - window)
+    let contextEnd = min(fullString.length, selectionEnd + window)
+    let before = fullString.substring(with: NSRange(location: contextStart, length: selectionStart - contextStart))
+    let after = fullString.substring(with: NSRange(location: selectionEnd, length: contextEnd - selectionEnd))
+
+    let context = (before + selectedText + after).trimmingCharacters(in: .whitespacesAndNewlines)
+    // Only useful when there is actually surrounding text beyond the selection itself.
+    return context == selectedText.trimmingCharacters(in: .whitespacesAndNewlines) ? "" : context
   }
 
   @MainActor
@@ -93,9 +134,19 @@ public final class MacSelectionReader: SelectionReader, @unchecked Sendable {
     let previousChangeCount = pasteboard.changeCount
 
     sendCopyShortcut()
-    try? await Task.sleep(for: .milliseconds(180))
 
-    guard pasteboard.changeCount != previousChangeCount, let copied = pasteboard.string(forType: .string) else {
+    // Poll changeCount instead of a fixed sleep: fast apps return in ~30 ms (saving ~150 ms
+    // over the old flat wait), slow apps get up to ~300 ms before we give up.
+    var copiedString: String?
+    for _ in 0..<16 {
+      try? await Task.sleep(for: .milliseconds(18))
+      if pasteboard.changeCount != previousChangeCount {
+        copiedString = pasteboard.string(forType: .string)
+        break
+      }
+    }
+
+    guard let copied = copiedString else {
       selectionReaderLogger.info(
         "Clipboard fallback produced no string after \(selectionElapsedMilliseconds(from: fallbackStart, clock: clock), privacy: .public) ms."
       )
@@ -110,7 +161,11 @@ public final class MacSelectionReader: SelectionReader, @unchecked Sendable {
 
   @MainActor
   private func sendCopyShortcut() {
-    let source = CGEventSource(stateID: .combinedSessionState)
+    // Use a private event source so the synthesized Cmd-C does NOT combine with modifiers
+    // the user is still physically holding (the shortcut is Option-Space, so Option may
+    // still be down). Setting flags to exactly `.maskCommand` then guarantees the target
+    // app receives a clean Cmd-C rather than Cmd-Opt-C.
+    let source = CGEventSource(stateID: .privateState)
     let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 8, keyDown: true)
     let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 8, keyDown: false)
     keyDown?.flags = .maskCommand

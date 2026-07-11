@@ -27,4 +27,23 @@ final class LearningPromptFactoryTests: XCTestCase {
     XCTAssertTrue(prompt.contains("exampleCount: 3"))
     XCTAssertTrue(prompt.contains("diagramDensity: full"))
   }
+
+  func testIncludesSurroundingContextWhenPresentAndOmitsWhenEmpty() throws {
+    let template = PromptTemplate(kind: .wordExplanationSchema, body: "Explain {{text}}.")
+    let withContext = CapturedText(
+      originalText: "resolve",
+      cleanedText: "resolve",
+      mode: .word,
+      sourceApp: "Safari",
+      surroundingContext: "They finally resolve the dispute in court."
+    )
+    let withoutContext = CapturedText(originalText: "resolve", cleanedText: "resolve", mode: .word, sourceApp: "Safari")
+
+    let promptWithContext = try LearningPromptFactory().prompt(for: withContext, template: template)
+    let promptWithoutContext = try LearningPromptFactory().prompt(for: withoutContext, template: template)
+
+    XCTAssertTrue(promptWithContext.contains("Surrounding context"))
+    XCTAssertTrue(promptWithContext.contains("They finally resolve the dispute in court."))
+    XCTAssertFalse(promptWithoutContext.contains("Surrounding context"))
+  }
 }

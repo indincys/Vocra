@@ -41,6 +41,7 @@ final class FloatingPanelController: ExplanationPanelPresenting {
         capturedText: content.capturedText,
         document: content.document,
         errorMessage: content.errorMessage,
+        errorRecovery: content.errorRecovery,
         validationErrorMessage: content.validationErrorMessage,
         onSwitchMode: onSwitchMode,
         onSaveVocabulary: onSaveVocabulary,
