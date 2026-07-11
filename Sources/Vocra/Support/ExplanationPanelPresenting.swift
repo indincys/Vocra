@@ -19,4 +19,11 @@ protocol ExplanationPanelPresenting: AnyObject {
     onClose: @escaping () -> Void
   )
   func close()
+  /// Feeds the number of characters streamed so far to the loading HUD, so its progress
+  /// reflects real activity instead of a pure indeterminate animation.
+  func updateProgress(receivedCharacters: Int)
+}
+
+extension ExplanationPanelPresenting {
+  func updateProgress(receivedCharacters: Int) {}
 }

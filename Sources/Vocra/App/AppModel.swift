@@ -39,6 +39,9 @@ final class AppModel {
   @ObservationIgnored nonisolated(unsafe) private var shortcutChangeObserver: NSObjectProtocol?
   @ObservationIgnored private var activeExplanationRequestID = 0
   @ObservationIgnored private var activeRequestTask: Task<Void, Never>?
+  /// Highest partial-content score rendered for the current request; reset per request so
+  /// progressive updates only fire when new sections/segments stream in.
+  @ObservationIgnored private var lastPartialSignature = 0
 
   convenience init() {
     self.init(
@@ -173,7 +176,7 @@ final class AppModel {
       refreshPanel()
 
       let explanationStart = clock.now
-      let document = try await explain(captured)
+      let document = try await explain(captured, onPartial: partialHandler(for: captured, requestID: requestID))
       shortcutFlowLogger.info(
         "Explanation completed in \(elapsedMilliseconds(from: explanationStart, clock: clock), privacy: .public) ms; mode: \(captured.mode.rawValue, privacy: .public); source characters: \(document.sourceText.count, privacy: .public)."
       )
@@ -223,7 +226,7 @@ final class AppModel {
     let requestID = beginExplanationRequest()
     let adjusted = CapturedText(originalText: current.originalText, cleanedText: current.cleanedText, mode: mode, sourceApp: current.sourceApp)
     do {
-      let document = try await explain(adjusted)
+      let document = try await explain(adjusted, onPartial: partialHandler(for: adjusted, requestID: requestID))
       guard isCurrentExplanationRequest(requestID) else { return }
       latestCapturedText = adjusted
       latestDocument = document
@@ -293,7 +296,10 @@ final class AppModel {
     return DashboardMetrics(cards: allVocabularyCards)
   }
 
-  private func explain(_ captured: CapturedText) async throws -> LearningExplanationDocument {
+  private func explain(
+    _ captured: CapturedText,
+    onPartial: @escaping @Sendable (String) -> Void = { _ in }
+  ) async throws -> LearningExplanationDocument {
     if let explanationProvider {
       return try await explanationProvider(captured)
     }
@@ -310,9 +316,63 @@ final class AppModel {
       return cached
     }
 
-    let document = try await resolved.service.explain(captured: captured, template: template)
+    let document = try await resolved.service.explain(captured: captured, template: template, onPartial: onPartial)
     explanationCache.store(document, text: captured.cleanedText, mode: captured.mode, model: resolved.configuration.model)
     return document
+  }
+
+  /// Builds the streaming callback that progressively renders a sentence as it arrives:
+  /// feeds the HUD real progress, and — once whole sections (translation, trunk, segments)
+  /// have streamed — promotes a partial document into the panel so the reader sees the
+  /// meaning and skeleton within seconds. Hops to the main actor and re-checks staleness.
+  private func partialHandler(for captured: CapturedText, requestID: Int) -> @Sendable (String) -> Void {
+    { [weak self] partial in
+      Task { @MainActor [weak self] in
+        self?.handlePartial(partial, captured: captured, requestID: requestID)
+      }
+    }
+  }
+
+  private func handlePartial(_ partial: String, captured: CapturedText, requestID: Int) {
+    guard isCurrentExplanationRequest(requestID) else { return }
+    panelPresenter.updateProgress(receivedCharacters: partial.count)
+
+    guard captured.mode == .sentence,
+          let json = PartialJSONCompleter.completedObject(from: partial),
+          let document = try? JSONDecoder().decode(LearningExplanationDocument.self, from: Data(json.utf8)),
+          var analysis = document.sentenceAnalysis
+    else { return }
+
+    let signature = partialSentenceSignature(analysis)
+    guard signature > lastPartialSignature else { return }
+    lastPartialSignature = signature
+
+    if analysis.sentence.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      analysis.sentence = AnalyzedSentence(text: captured.cleanedText, segments: analysis.sentence.segments)
+    }
+    var promoted = document
+    promoted.mode = captured.mode
+    promoted.sourceText = captured.cleanedText
+    promoted.sentenceAnalysis = analysis
+
+    latestCapturedText = captured
+    latestDocument = promoted
+    latestErrorMessage = nil
+    latestValidationErrorMessage = nil
+    refreshPanel()
+  }
+
+  /// A monotonically-growing score of how much renderable sentence content has arrived, so
+  /// the panel only re-renders when a new section or segment appears.
+  private func partialSentenceSignature(_ analysis: SentenceAnalysis) -> Int {
+    var score = 0
+    if !analysis.translation.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { score += 1 }
+    if !analysis.structureBreakdown.trunk.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { score += 1 }
+    if !analysis.logicSummary.coreMeaning.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { score += 1 }
+    score += analysis.structureBreakdown.items.count
+    score += analysis.sentence.segments.count
+    score += analysis.logicSummary.points.count
+    return score
   }
 
   /// Fetches the relationship diagram + key vocabulary that were kept out of the
@@ -437,6 +497,7 @@ final class AppModel {
 
   private func beginExplanationRequest() -> Int {
     activeExplanationRequestID += 1
+    lastPartialSignature = 0
     return activeExplanationRequestID
   }
 

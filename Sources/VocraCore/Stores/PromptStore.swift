@@ -107,14 +107,12 @@ private enum BundledPromptTemplates {
       Analyze this English sentence for a Chinese learner and return ONE JSON object.
       Output ONLY the fields shown below — do NOT echo the original sentence, and do NOT
       add mode, sourceText, language, titles, headline, or any other field.
+      Generate the fields in exactly the order shown (translation first, then the trunk,
+      then the segments) so the reader sees the meaning and skeleton first.
 
       {
         "sentenceAnalysis": {
-          "sentence": {
-            "segments": [
-              { "id": "main-subject", "text": "<exact contiguous substring of the sentence>", "labelZh": "主语", "color": "blue", "note": "<这一成分在本句中的具体作用：修饰/引出/连接了什么，以及在这句话里的含义>" }
-            ]
-          },
+          "translation": { "text": "<Chinese translation>" },
           "structureBreakdown": {
             "trunk": "<只保留主干后的核心句：主语 + 谓语 (+ 宾语/表语)，去掉所有定语、状语和从句>",
             "trunkZh": "<trunk 的简洁中文意思>",
@@ -122,8 +120,12 @@ private enum BundledPromptTemplates {
               { "id": "main-clause", "text": "<exact clause span>", "labelZh": "主句", "note": "<这个分句在本句里承担的具体作用：陈述/让步/条件/原因等>", "children": [] }
             ]
           },
-          "logicSummary": { "points": ["<Chinese explanation point>"], "coreMeaning": "<Chinese core meaning>" },
-          "translation": { "text": "<Chinese translation>" }
+          "sentence": {
+            "segments": [
+              { "id": "main-subject", "text": "<exact contiguous substring of the sentence>", "labelZh": "主语", "color": "blue", "note": "<这一成分在本句中的具体作用：修饰/引出/连接了什么，以及在这句话里的含义>" }
+            ]
+          },
+          "logicSummary": { "points": ["<Chinese explanation point>"], "coreMeaning": "<Chinese core meaning>" }
         }
       }
 

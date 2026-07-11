@@ -6,6 +6,10 @@ import VocraCore
 @MainActor
 final class FloatingPanelController: ExplanationPanelPresenting {
   private var panel: NSPanel?
+  /// A single reused hosting view. Reassigning its `rootView` (rather than creating a new
+  /// NSHostingView on every `show`) preserves SwiftUI @State and scroll position across
+  /// progressive result updates, avoiding visual flashes as streamed content fills in.
+  private var hostingView: NSHostingView<AnyView>?
   private var localEscapeMonitor: Any?
   private var globalEscapeMonitor: Any?
   private var globalClickMonitor: Any?
@@ -50,6 +54,12 @@ final class FloatingPanelController: ExplanationPanelPresenting {
     panel?.orderOut(nil)
   }
 
+  func updateProgress(receivedCharacters: Int) {
+    // Only meaningful while the HUD is up; once the result is shown the bar is gone.
+    guard isShowingHUD else { return }
+    progress.receivedCharacters = receivedCharacters
+  }
+
   /// User-initiated dismissal (Esc / click-outside). Prefers the `onClose` handler so the
   /// owning model can cancel the in-flight request; falls back to a plain hide.
   private func dismiss() {
@@ -68,7 +78,7 @@ final class FloatingPanelController: ExplanationPanelPresenting {
     isShowingResult = false
     if !isShowingHUD {
       isShowingHUD = true
-      panel.contentView = NSHostingView(rootView: LookupHUDView(progress: progress))
+      setRootView(LookupHUDView(progress: progress))
       panel.setFrame(bottomRightFrame(size: LookupHUDView.size), display: true, animate: false)
     }
     panel.orderFrontRegardless()
@@ -76,7 +86,7 @@ final class FloatingPanelController: ExplanationPanelPresenting {
 
   private func presentResult<Content: View>(rootView: Content) {
     let panel = existingOrCreatePanel()
-    panel.contentView = NSHostingView(rootView: rootView)
+    setRootView(rootView)
     isShowingResult = true
     if isShowingHUD {
       isShowingHUD = false
@@ -86,6 +96,18 @@ final class FloatingPanelController: ExplanationPanelPresenting {
     // Float above the frontmost app WITHOUT activating Vocra or taking key
     // focus, so the user can keep working. Dismiss via the global Esc monitor.
     panel.orderFrontRegardless()
+  }
+
+  /// Reuses the single hosting view, updating its root instead of replacing the view.
+  private func setRootView(_ view: some View) {
+    let erased = AnyView(view)
+    if let hostingView {
+      hostingView.rootView = erased
+    } else {
+      let hostingView = NSHostingView(rootView: erased)
+      self.hostingView = hostingView
+      panel?.contentView = hostingView
+    }
   }
 
   /// Anchors a window of the given size to the bottom-right of the active screen.
