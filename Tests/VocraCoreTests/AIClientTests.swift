@@ -53,6 +53,56 @@ final class AIClientTests: XCTestCase {
     XCTAssertEqual(http.lastJSONBody?["model"] as? String, "model-a")
   }
 
+  func testExtraBodyIsMergedIntoRequestBody() async throws {
+    let http = StubHTTPClient(responseData: Data("""
+    {"choices":[{"message":{"content":"OK"}}]}
+    """.utf8))
+    let configuration = APIConfiguration(
+      baseURL: URL(string: "https://example.com/v1")!,
+      model: "model-a",
+      timeoutSeconds: 10,
+      supportsStructuredOutputs: false,
+      extraBody: "{\"enable_thinking\": false, \"reasoning_effort\": \"none\"}"
+    )
+    let client = OpenAICompatibleClient(
+      configuration: configuration,
+      apiKeyProvider: { "secret" },
+      httpClient: http
+    )
+
+    _ = try await client.complete(prompt: "Explain embedding")
+
+    let body = try XCTUnwrap(http.lastJSONBody)
+    XCTAssertEqual(body["enable_thinking"] as? Bool, false)
+    XCTAssertEqual(body["reasoning_effort"] as? String, "none")
+    XCTAssertEqual(body["model"] as? String, "model-a")
+  }
+
+  func testInvalidExtraBodyIsIgnoredAndRequestStillSends() async throws {
+    let http = StubHTTPClient(responseData: Data("""
+    {"choices":[{"message":{"content":"OK"}}]}
+    """.utf8))
+    let configuration = APIConfiguration(
+      baseURL: URL(string: "https://example.com/v1")!,
+      model: "model-a",
+      timeoutSeconds: 10,
+      supportsStructuredOutputs: false,
+      extraBody: "not valid json"
+    )
+    let client = OpenAICompatibleClient(
+      configuration: configuration,
+      apiKeyProvider: { "secret" },
+      httpClient: http
+    )
+
+    let content = try await client.complete(prompt: "Explain embedding")
+
+    XCTAssertEqual(content, "OK")
+    let body = try XCTUnwrap(http.lastJSONBody)
+    XCTAssertEqual(body["model"] as? String, "model-a")
+    XCTAssertNil(body["not valid json"])
+  }
+
   func testAPIConnectionTesterUsesProvidedConfigurationAndAPIKey() async throws {
     let http = StubHTTPClient(responseData: Data("""
     {"choices":[{"message":{"content":"OK"}}]}

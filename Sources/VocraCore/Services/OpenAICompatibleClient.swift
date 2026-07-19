@@ -79,6 +79,19 @@ public struct OpenAICompatibleClient: AIClient {
     try await complete(prompt: prompt, onPartial: { _ in })
   }
 
+  /// `configuration.extraBody` parsed into a JSON object, or `nil` if it's absent, blank, or
+  /// not a valid JSON object. Invalid JSON is silently ignored so a typo can't wedge every
+  /// request — it just means the extra params aren't applied.
+  private var parsedExtraBody: [String: Any]? {
+    guard let raw = configuration.extraBody?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !raw.isEmpty,
+          let data = raw.data(using: .utf8),
+          let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          !object.isEmpty
+    else { return nil }
+    return object
+  }
+
   public func complete(prompt: String, onPartial: @escaping @Sendable (String) -> Void) async throws -> String {
     let clock = ContinuousClock()
     let requestStart = clock.now
@@ -94,6 +107,7 @@ public struct OpenAICompatibleClient: AIClient {
     let includeExtras = configuration.supportsStructuredOutputs
       || configuration.temperature != nil
       || configuration.maxTokens != nil
+      || parsedExtraBody != nil
     do {
       return try await performStreaming(
         prompt: prompt,
@@ -131,7 +145,7 @@ public struct OpenAICompatibleClient: AIClient {
     request.timeoutInterval = configuration.timeoutSeconds
     request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    request.httpBody = try JSONEncoder().encode(ChatCompletionRequest(
+    var encodedBody = try JSONEncoder().encode(ChatCompletionRequest(
       model: configuration.model,
       messages: [RequestMessage(role: "user", content: prompt)],
       stream: true,
@@ -139,6 +153,16 @@ public struct OpenAICompatibleClient: AIClient {
       temperature: includeExtras ? configuration.temperature : nil,
       maxTokens: includeExtras ? configuration.maxTokens : nil
     ))
+    // Merge provider-specific extra params (e.g. disabling a reasoning model's thinking)
+    // over the typed body. Only when we're sending the tuned body — a 4xx retry drops these
+    // along with the other extras.
+    if includeExtras,
+       let extra = parsedExtraBody,
+       var base = try? JSONSerialization.jsonObject(with: encodedBody) as? [String: Any] {
+      for (key, value) in extra { base[key] = value }
+      encodedBody = try JSONSerialization.data(withJSONObject: base)
+    }
+    request.httpBody = encodedBody
 
     aiClientLogger.info(
       "AI request started; model: \(configuration.model, privacy: .public); endpoint: \(request.url?.absoluteString ?? "Unknown URL", privacy: .public); prompt characters: \(prompt.count, privacy: .public)."

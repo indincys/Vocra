@@ -15,6 +15,13 @@ public struct APIConfiguration: Codable, Equatable, Sendable {
   /// Optional cap on generated tokens to keep a runaway generation from burning the whole
   /// request timeout. `nil` means "don't send it".
   public var maxTokens: Int?
+  /// Raw JSON object merged verbatim into the chat/completions request body. This is the
+  /// escape hatch for provider-specific knobs that don't have a first-class field here —
+  /// most importantly turning off a reasoning model's "thinking" pass, which every vendor
+  /// spells differently (OpenAI/Gemini: `{"reasoning_effort":"none"}`; DeepSeek/Qwen:
+  /// `{"enable_thinking":false}`; Doubao/Zhipu: `{"thinking":{"type":"disabled"}}`). Keys
+  /// here override the typed fields above. Invalid JSON is ignored at send time.
+  public var extraBody: String?
 
   public init(
     baseURL: URL,
@@ -22,7 +29,8 @@ public struct APIConfiguration: Codable, Equatable, Sendable {
     timeoutSeconds: Double,
     supportsStructuredOutputs: Bool = true,
     temperature: Double? = nil,
-    maxTokens: Int? = nil
+    maxTokens: Int? = nil,
+    extraBody: String? = nil
   ) {
     self.baseURL = baseURL
     self.model = model
@@ -30,10 +38,11 @@ public struct APIConfiguration: Codable, Equatable, Sendable {
     self.supportsStructuredOutputs = supportsStructuredOutputs
     self.temperature = temperature
     self.maxTokens = maxTokens
+    self.extraBody = extraBody
   }
 
   private enum CodingKeys: String, CodingKey {
-    case baseURL, model, timeoutSeconds, supportsStructuredOutputs, temperature, maxTokens
+    case baseURL, model, timeoutSeconds, supportsStructuredOutputs, temperature, maxTokens, extraBody
   }
 
   public init(from decoder: Decoder) throws {
@@ -44,6 +53,7 @@ public struct APIConfiguration: Codable, Equatable, Sendable {
     supportsStructuredOutputs = try container.decodeIfPresent(Bool.self, forKey: .supportsStructuredOutputs) ?? true
     temperature = try container.decodeIfPresent(Double.self, forKey: .temperature)
     maxTokens = try container.decodeIfPresent(Int.self, forKey: .maxTokens)
+    extraBody = try container.decodeIfPresent(String.self, forKey: .extraBody)
   }
 
   public static let `default` = APIConfiguration(

@@ -44,6 +44,7 @@ private struct APIProfileForm: Identifiable, Equatable {
   var supportsStructuredOutputs: Bool
   var temperature: Double?
   var maxTokens: Int?
+  var extraBody: String
 
   init(profile: APIProviderProfile, apiKey: String) {
     self.id = profile.id
@@ -55,6 +56,7 @@ private struct APIProfileForm: Identifiable, Equatable {
     self.supportsStructuredOutputs = profile.configuration.supportsStructuredOutputs
     self.temperature = profile.configuration.temperature
     self.maxTokens = profile.configuration.maxTokens
+    self.extraBody = profile.configuration.extraBody ?? ""
   }
 
   init(id: UUID = UUID(), name: String, configuration: APIConfiguration = .default, apiKey: String = "") {
@@ -67,6 +69,7 @@ private struct APIProfileForm: Identifiable, Equatable {
     self.supportsStructuredOutputs = configuration.supportsStructuredOutputs
     self.temperature = configuration.temperature
     self.maxTokens = configuration.maxTokens
+    self.extraBody = configuration.extraBody ?? ""
   }
 
   var displayName: String {
@@ -76,13 +79,15 @@ private struct APIProfileForm: Identifiable, Equatable {
 
   var configuration: APIConfiguration? {
     guard let url = URL(string: baseURL) else { return nil }
+    let trimmedExtraBody = extraBody.trimmingCharacters(in: .whitespacesAndNewlines)
     return APIConfiguration(
       baseURL: url,
       model: model,
       timeoutSeconds: timeout,
       supportsStructuredOutputs: supportsStructuredOutputs,
       temperature: temperature,
-      maxTokens: maxTokens
+      maxTokens: maxTokens,
+      extraBody: trimmedExtraBody.isEmpty ? nil : trimmedExtraBody
     )
   }
 
@@ -276,6 +281,10 @@ struct SettingsView: View {
         row("强制 JSON 输出", "发送 response_format；个别自建端点不支持时可关闭") {
           Toggle("", isOn: $apiProfiles[index].supportsStructuredOutputs)
             .toggleStyle(.switch).labelsHidden().tint(VocraTheme.accent)
+        }
+        rowDivider
+        field("额外请求参数 (JSON)", "合并进请求体，用于关闭推理等：DeepSeek/Qwen 填 {\"enable_thinking\": false}；OpenAI/Gemini 填 {\"reasoning_effort\": \"none\"}") {
+          textInput("{\"enable_thinking\": false}", text: $apiProfiles[index].extraBody, mono: true)
         }
       }
       rowDivider
