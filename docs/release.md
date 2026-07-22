@@ -29,6 +29,10 @@ git push origin v0.1.0
 
 The release workflow builds `Vocra.app`, embeds Sparkle, ad-hoc signs the bundle, creates `Vocra-<version>.dmg`, generates `appcast.xml`, and uploads both files to the GitHub Release.
 
+## Release Notes
+
+Write the notes for a version in `docs/release-notes/v<version>.md` before tagging. The workflow passes that path as `RELEASE_NOTES_FILE`, so the same file becomes the GitHub release body *and* the `<description>` Sparkle shows in the in-app update dialog. If the file is missing the build still succeeds with a placeholder, so a forgotten file never blocks a release — it just produces a release nobody can read.
+
 Release builds use a UTC timestamp as `CFBundleVersion` so Sparkle always sees a monotonically increasing internal version.
 
 The app uses this default feed URL:
