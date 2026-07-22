@@ -34,11 +34,7 @@ final class ArticleRepositoryTests: XCTestCase {
       sourceText: sentence.text,
       language: LearningExplanationLanguage(source: "en", explanation: "zh-Hans"),
       sentenceAnalysis: SentenceAnalysis(
-        headline: LearningHeadline(title: "", subtitle: ""),
         sentence: AnalyzedSentence(text: sentence.text, segments: []),
-        structureBreakdown: StructureBreakdown(title: "", items: []),
-        relationshipDiagram: RelationshipDiagram(nodes: [], edges: []),
-        logicSummary: LogicSummary(title: "", points: [], coreMeaning: "核心意思"),
         translation: TranslationBlock(title: "", text: "客户端会流式返回。"),
         keyVocabulary: []
       ),

@@ -2,7 +2,7 @@ import Foundation
 import SwiftUI
 import VocraCore
 
-// MARK: - Shared atoms for the Liquid Glass lookup popovers
+// MARK: - Shared atoms for the learning views
 
 /// Tiny ALL-CAPS-weight micro label (e.g. 例句, 语境理解).
 struct PopMicroLabel: View {
@@ -149,114 +149,6 @@ struct PopNumber: View {
   }
 }
 
-private enum SentenceMetrics {
-  static let glyph: CGFloat = 17
-  static let barHeight: CGFloat = 3
-  static let labelSize: CGFloat = 10.5
-  /// Space under each word that holds the underline bar (role spans only).
-  static let underlinePad: CGFloat = 4
-  /// Fixed height reserved for the role label beneath every word, so glyph
-  /// baselines stay aligned and line spacing is even across the sentence.
-  static let labelHeight: CGFloat = 14
-  static let stackSpacing: CGFloat = 2
-}
-
-/// The full original sentence, rendered verbatim, with each grammatical
-/// constituent underlined in its role color and labeled directly beneath the
-/// underline (主语/谓语/连词…). Hovering a labeled span pops a bubble with the
-/// sentence-specific note. Connective filler between spans stays plain so the
-/// sentence is never broken into fragments.
-struct RoleUnderlinedSentence: View {
-  let text: String
-  let segments: [SentenceSegment]
-  @State private var hoveredID: String?
-
-  private var pieces: [SentenceDisplayPiece] {
-    sentenceDisplayPieces(text: text, segments: segments)
-  }
-
-  var body: some View {
-    FlowLayout(spacing: 4, rowSpacing: 7) {
-      ForEach(pieces) { piece in
-        switch piece.kind {
-        case .plain:
-          PlainWord(text: piece.text)
-        case let .role(segment):
-          RoleSpan(text: piece.text, segment: segment, hoveredID: $hoveredID)
-        }
-      }
-    }
-    .frame(maxWidth: .infinity, alignment: .leading)
-  }
-}
-
-/// A plain (unlabeled) word; reserves the same underline + label height as a
-/// labeled span so every line keeps a uniform rhythm and baselines stay aligned.
-private struct PlainWord: View {
-  let text: String
-
-  var body: some View {
-    VStack(spacing: SentenceMetrics.stackSpacing) {
-      Text(text)
-        .font(.system(size: SentenceMetrics.glyph))
-        .foregroundStyle(VocraTheme.ink900)
-        .fixedSize()
-        .padding(.bottom, SentenceMetrics.underlinePad)
-      Color.clear.frame(height: SentenceMetrics.labelHeight)
-    }
-  }
-}
-
-/// A labeled, underlined grammatical span. The colored bar sits flush under the
-/// word and the Chinese role label sits under the bar.
-private struct RoleSpan: View {
-  let text: String
-  let segment: SentenceSegment
-  @Binding var hoveredID: String?
-
-  private var isHovered: Bool { hoveredID == segment.id }
-
-  var body: some View {
-    VStack(spacing: SentenceMetrics.stackSpacing) {
-      Text(text)
-        .font(.system(size: SentenceMetrics.glyph))
-        .foregroundStyle(VocraTheme.ink900)
-        .fixedSize()
-        .padding(.horizontal, 1)
-        .padding(.bottom, SentenceMetrics.underlinePad)
-        .background(
-          isHovered ? segment.color.vocraColor.opacity(0.16) : .clear,
-          in: RoundedRectangle(cornerRadius: 4, style: .continuous)
-        )
-        .overlay(alignment: .bottom) {
-          RoundedRectangle(cornerRadius: 1.5, style: .continuous)
-            .fill(segment.color.vocraColor)
-            .frame(height: SentenceMetrics.barHeight)
-        }
-      Text(segment.labelZh)
-        .font(.system(size: SentenceMetrics.labelSize, weight: .semibold))
-        .foregroundStyle(segment.color.vocraInk)
-        .lineLimit(1)
-        .fixedSize()
-        .frame(height: SentenceMetrics.labelHeight)
-    }
-    .contentShape(Rectangle())
-    .onHover { hovering in
-      if hovering { hoveredID = segment.id }
-      else if hoveredID == segment.id { hoveredID = nil }
-    }
-    .popover(
-      isPresented: Binding(
-        get: { hoveredID == segment.id },
-        set: { presented in if !presented, hoveredID == segment.id { hoveredID = nil } }
-      ),
-      arrowEdge: .bottom
-    ) {
-      SegmentTooltip(segment: segment)
-    }
-  }
-}
-
 // MARK: - Sentence tiling
 
 /// One renderable unit of the underlined sentence.
@@ -269,93 +161,115 @@ struct SentenceDisplayPiece: Identifiable, Equatable {
   let id: String
   let text: String
   let kind: Kind
+  /// The key-vocabulary entry covering this piece, when one overlaps it. A piece can carry
+  /// both a grammatical role and a key term (e.g. the object *is* the word worth learning).
+  var keyTerm: KeyVocabularyItem?
+
+  var segment: SentenceSegment? {
+    if case let .role(segment) = kind { return segment }
+    return nil
+  }
+
+  /// Whether the piece has anything to explain, i.e. whether it should be tappable.
+  var isExplainable: Bool { segment != nil || keyTerm != nil }
 }
 
-/// Reconstructs the full sentence as an ordered list of pieces: plain word
-/// tokens for the connective tissue, and role spans for each grammatical
-/// constituent located (tolerantly) inside the original text. Works on whole
-/// whitespace-delimited tokens so punctuation always stays attached to its
-/// word, and guarantees the whole sentence is shown even when the model only
-/// marks a few spans.
-func sentenceDisplayPieces(text: String, segments: [SentenceSegment]) -> [SentenceDisplayPiece] {
+/// Reconstructs the full sentence as an ordered list of pieces: plain word tokens for the
+/// connective tissue, and marked spans for each grammatical constituent and each key
+/// vocabulary term located (tolerantly) inside the original text. Works on whole
+/// whitespace-delimited tokens so punctuation always stays attached to its word, and
+/// guarantees the whole sentence is shown even when the model only marks a few spans.
+///
+/// A run of tokens is merged into one piece only while both its role span and its key term
+/// stay the same, so a key word inside a larger clause still gets its own tappable piece.
+func sentenceDisplayPieces(
+  text: String,
+  segments: [SentenceSegment],
+  keyVocabulary: [KeyVocabularyItem] = []
+) -> [SentenceDisplayPiece] {
   guard !text.isEmpty else { return [] }
   let tokens = wordTokenRanges(in: text)
   guard !tokens.isEmpty else { return [] }
 
-  // Locate each segment's span, preferring the next forward occurrence so spans
-  // stay in reading order; fall back to anywhere if a forward match is missing.
-  // Keep only non-overlapping spans (earlier start wins).
-  var matches: [(range: Range<String.Index>, segment: SentenceSegment)] = []
-  if !segments.isEmpty {
-    var cursor = text.startIndex
-    for segment in segments {
-      guard let range = locateSpan(segment.text, in: text, from: cursor)
-        ?? locateSpan(segment.text, in: text, from: text.startIndex)
-      else { continue }
-      matches.append((range, segment))
-      if range.upperBound > cursor { cursor = range.upperBound }
-    }
-    matches.sort { $0.range.lowerBound < $1.range.lowerBound }
-    var deduped: [(range: Range<String.Index>, segment: SentenceSegment)] = []
-    for match in matches {
-      if let last = deduped.last, match.range.lowerBound < last.range.upperBound { continue }
-      deduped.append(match)
-    }
-    matches = deduped
-  }
+  let segmentMatches = locateAll(segments.map(\.text), in: text)
+  let termMatches = locateAll(keyVocabulary.map(\.term), in: text)
 
-  // Assign each word token to the span it overlaps most (nil = plain word).
-  func assignedSegment(for token: Range<String.Index>) -> Int? {
-    var bestIndex: Int?
+  /// Index of the match that overlaps `token` the most (nil when none does).
+  func assignment(for token: Range<String.Index>, in matches: [(range: Range<String.Index>, index: Int)]) -> Int? {
+    var best: Int?
     var bestOverlap = 0
-    for (index, match) in matches.enumerated() {
+    for match in matches {
       let lower = max(token.lowerBound, match.range.lowerBound)
       let upper = min(token.upperBound, match.range.upperBound)
       guard lower < upper else { continue }
       let overlap = text.distance(from: lower, to: upper)
       if overlap > bestOverlap {
         bestOverlap = overlap
-        bestIndex = index
+        best = match.index
       }
     }
-    return bestIndex
+    return best
   }
 
-  // Walk tokens, grouping a run of consecutive tokens that share a span into one
-  // labeled role piece; unassigned tokens become individual plain words so the
-  // sentence wraps naturally.
   var pieces: [SentenceDisplayPiece] = []
   var runStart: Int?
-  var runSegment: Int?
+  var runKey: (Int?, Int?)?
   var plainCounter = 0
 
   func flushRun(endExclusive: Int) {
-    guard let start = runStart, let segIndex = runSegment, endExclusive > start else {
-      runStart = nil
-      runSegment = nil
-      return
-    }
+    defer { runStart = nil; runKey = nil }
+    guard let start = runStart, let key = runKey, endExclusive > start else { return }
     let span = String(text[tokens[start].lowerBound..<tokens[endExclusive - 1].upperBound])
-    let segment = matches[segIndex].segment
-    pieces.append(SentenceDisplayPiece(id: "seg-\(segment.id)-\(start)", text: span, kind: .role(segment)))
-    runStart = nil
-    runSegment = nil
+    let segment = key.0.map { segments[$0] }
+    let term = key.1.map { keyVocabulary[$0] }
+    let id = "sp-\(segment?.id ?? "term")-\(term?.term ?? "")-\(start)"
+    pieces.append(SentenceDisplayPiece(
+      id: id,
+      text: span,
+      kind: segment.map { .role($0) } ?? .plain,
+      keyTerm: term
+    ))
   }
 
   for (index, token) in tokens.enumerated() {
-    if let assigned = assignedSegment(for: token) {
-      if runSegment == assigned { continue }
-      flushRun(endExclusive: index)
-      runStart = index
-      runSegment = assigned
-    } else {
+    let key = (assignment(for: token, in: segmentMatches), assignment(for: token, in: termMatches))
+    guard key.0 != nil || key.1 != nil else {
       flushRun(endExclusive: index)
       pieces.append(SentenceDisplayPiece(id: "w-\(plainCounter)", text: String(text[token]), kind: .plain))
       plainCounter += 1
+      continue
     }
+    if let runKey, runKey == key { continue }
+    flushRun(endExclusive: index)
+    runStart = index
+    runKey = key
   }
   flushRun(endExclusive: tokens.count)
   return pieces
+}
+
+/// Locates each needle in `text`, preferring the next forward occurrence so spans stay in
+/// reading order, and keeps only non-overlapping matches (earlier start wins). The returned
+/// index is the needle's position in the input array.
+private func locateAll(_ needles: [String], in text: String) -> [(range: Range<String.Index>, index: Int)] {
+  guard !needles.isEmpty else { return [] }
+  var matches: [(range: Range<String.Index>, index: Int)] = []
+  var cursor = text.startIndex
+  for (index, needle) in needles.enumerated() {
+    guard let range = locateSpan(needle, in: text, from: cursor)
+      ?? locateSpan(needle, in: text, from: text.startIndex)
+    else { continue }
+    matches.append((range, index))
+    if range.upperBound > cursor { cursor = range.upperBound }
+  }
+  matches.sort { $0.range.lowerBound < $1.range.lowerBound }
+
+  var deduped: [(range: Range<String.Index>, index: Int)] = []
+  for match in matches {
+    if let last = deduped.last, match.range.lowerBound < last.range.upperBound { continue }
+    deduped.append(match)
+  }
+  return deduped
 }
 
 /// The character ranges of every whitespace-delimited token in `text`.
@@ -385,44 +299,9 @@ private func locateSpan(_ needle: String, in haystack: String, from start: Strin
   return haystack.range(of: pattern, options: [.regularExpression, .caseInsensitive], range: window)
 }
 
-/// Hover bubble: colored role badge + the chunk text + a sentence-specific note
-/// (falls back to a generic role description when the model didn't provide one).
-private struct SegmentTooltip: View {
-  let segment: SentenceSegment
-
-  private var note: String {
-    let trimmed = segment.note.trimmingCharacters(in: .whitespacesAndNewlines)
-    return trimmed.isEmpty ? roleGrammarNote(for: segment) : trimmed
-  }
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 7) {
-      HStack(spacing: 7) {
-        Text(segment.labelZh)
-          .font(.system(size: 11, weight: .bold))
-          .foregroundStyle(segment.color.vocraInk)
-          .padding(.horizontal, 8)
-          .padding(.vertical, 2)
-          .background(segment.color.vocraColor.opacity(0.2), in: Capsule())
-        Text(segment.text)
-          .font(.system(size: 12, weight: .semibold))
-          .foregroundStyle(VocraTheme.ink700)
-          .lineLimit(2)
-      }
-      Text(note)
-        .font(.system(size: 12.5))
-        .foregroundStyle(VocraTheme.ink700)
-        .lineSpacing(2)
-        .fixedSize(horizontal: false, vertical: true)
-    }
-    .padding(.horizontal, 13)
-    .padding(.vertical, 11)
-    .frame(width: 268)
-  }
-}
-
-/// Generic grammar note for a component, keyed off its Chinese role label.
-private func roleGrammarNote(for segment: SentenceSegment) -> String {
+/// Generic grammar note for a component, keyed off its Chinese role label. Used when the
+/// model didn't supply a sentence-specific note.
+func roleGrammarNote(for segment: SentenceSegment) -> String {
   let label = segment.labelZh
   if label.contains("主语") { return "句子的动作发出者。" }
   if label.contains("谓语") { return "描述主语的动作或状态，是句子的核心。" }

@@ -30,7 +30,10 @@ final class LearningExplanationDocumentTests: XCTestCase {
     XCTAssertEqual(document.sentenceAnalysis?.sentence.segments, [])
   }
 
-  func testDecodesSentenceRelationshipEdgeWhenChineseLabelIsMissing() throws {
+  /// Cached explanations and stored article analyses written before the six-section layout
+  /// was trimmed are still on disk. They must keep decoding — the removed sections are simply
+  /// ignored rather than failing the whole document.
+  func testDecodesLegacySentenceDocumentByIgnoringRemovedSections() throws {
     let json = """
     {
       "schemaVersion": 1,
@@ -40,19 +43,14 @@ final class LearningExplanationDocumentTests: XCTestCase {
       "sentenceAnalysis": {
         "headline": { "title": "例句解析", "subtitle": "Sentence Analysis" },
         "sentence": { "text": "Codex works best when configured.", "segments": [] },
-        "structureBreakdown": { "title": "结构解析", "items": [] },
+        "structureBreakdown": { "title": "结构解析", "trunk": "Codex works", "items": [] },
         "relationshipDiagram": {
-          "nodes": [
-            { "id": "main", "title": "主句", "text": "Codex works best" },
-            { "id": "condition", "title": "条件", "text": "when configured" }
-          ],
-          "edges": [
-            { "from": "condition", "to": "main", "labelEn": "condition / time" }
-          ]
+          "nodes": [{ "id": "main", "title": "主句", "text": "Codex works best" }],
+          "edges": [{ "from": "condition", "to": "main", "labelEn": "condition / time" }]
         },
         "logicSummary": { "title": "核心含义", "points": ["when configured 说明条件。"], "coreMeaning": "配置好时效果最好。" },
         "translation": { "title": "例句翻译", "text": "配置好时，Codex 效果最好。" },
-        "keyVocabulary": []
+        "keyVocabulary": [{ "term": "configured", "meaning": "配置好的", "note": "过去分词作状语" }]
       },
       "wordExplanation": null,
       "vocabularyCard": null,
@@ -62,8 +60,9 @@ final class LearningExplanationDocumentTests: XCTestCase {
 
     let document = try JSONDecoder().decode(LearningExplanationDocument.self, from: Data(json.utf8))
 
-    XCTAssertEqual(document.sentenceAnalysis?.relationshipDiagram.edges.first?.labelZh, "关系")
-    XCTAssertEqual(document.sentenceAnalysis?.relationshipDiagram.edges.first?.labelEn, "condition / time")
+    XCTAssertEqual(document.sentenceAnalysis?.translation.text, "配置好时，Codex 效果最好。")
+    XCTAssertEqual(document.sentenceAnalysis?.sentence.text, "Codex works best when configured.")
+    XCTAssertEqual(document.sentenceAnalysis?.keyVocabulary.first?.term, "configured")
   }
 
   func testDecodesSentenceDocumentAndDefaultsUnknownColorToNeutral() throws {

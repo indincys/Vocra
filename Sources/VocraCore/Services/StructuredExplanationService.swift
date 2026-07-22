@@ -1,16 +1,5 @@
 import Foundation
 
-/// The sections split out of the first-screen sentence request and fetched separately.
-public struct SentenceSupplement: Sendable, Equatable {
-  public var relationshipDiagram: RelationshipDiagram
-  public var keyVocabulary: [KeyVocabularyItem]
-
-  public init(relationshipDiagram: RelationshipDiagram, keyVocabulary: [KeyVocabularyItem]) {
-    self.relationshipDiagram = relationshipDiagram
-    self.keyVocabulary = keyVocabulary
-  }
-}
-
 public struct StructuredExplanationService: Sendable {
   private let aiClient: any AIClient
   private let promptFactory: LearningPromptFactory
@@ -47,21 +36,6 @@ public struct StructuredExplanationService: Sendable {
       let repairedRaw = try await aiClient.complete(prompt: repairPrompt(originalPrompt: prompt, invalidResponse: raw, error: error))
       return try decodeAndValidate(repairedRaw, captured: captured, validatesVocabularyCard: false)
     }
-  }
-
-  /// Best-effort follow-up request for the parts kept out of the first-screen sentence
-  /// analysis (relationship diagram + key vocabulary). No repair retry — if it fails or
-  /// decodes empty, the caller simply skips those sections.
-  public func sentenceSupplement(captured: CapturedText, template: PromptTemplate) async throws -> SentenceSupplement {
-    let prompt = try promptFactory.prompt(for: captured, template: template, preferences: preferences)
-    let raw = try await aiClient.complete(prompt: prompt)
-    let json = Self.extractJSONObject(from: raw)
-    let document = try decoder.decode(LearningExplanationDocument.self, from: Data(json.utf8))
-    let analysis = document.sentenceAnalysis
-    return SentenceSupplement(
-      relationshipDiagram: analysis?.relationshipDiagram ?? RelationshipDiagram(nodes: [], edges: []),
-      keyVocabulary: analysis?.keyVocabulary ?? []
-    )
   }
 
   public func vocabularyCard(captured: CapturedText, template: PromptTemplate) async throws -> LearningExplanationDocument {

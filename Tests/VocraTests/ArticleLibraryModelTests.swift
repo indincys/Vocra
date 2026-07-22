@@ -153,11 +153,7 @@ private func stubDocument(for text: String) -> LearningExplanationDocument {
     sourceText: text,
     language: LearningExplanationLanguage(source: "en", explanation: "zh-Hans"),
     sentenceAnalysis: SentenceAnalysis(
-      headline: LearningHeadline(title: "", subtitle: ""),
       sentence: AnalyzedSentence(text: text, segments: []),
-      structureBreakdown: StructureBreakdown(title: "", items: []),
-      relationshipDiagram: RelationshipDiagram(nodes: [], edges: []),
-      logicSummary: LogicSummary(title: "", points: [], coreMeaning: "核心"),
       translation: TranslationBlock(title: "", text: "译文"),
       keyVocabulary: []
     ),

@@ -5,12 +5,15 @@ struct VocraApp: App {
   @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
   @Environment(\.openWindow) private var openWindow
   @State private var appModel: AppModel
+  private let lookupPresenter: MainWindowLookupPresenter
   private let appName: String
 
   @MainActor
   init() {
-    let appModel = AppModel()
+    let lookupPresenter = MainWindowLookupPresenter()
+    let appModel = AppModel(panelPresenter: lookupPresenter)
     _appModel = State(initialValue: appModel)
+    self.lookupPresenter = lookupPresenter
     self.appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
       ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
       ?? "Vocra"
@@ -67,6 +70,10 @@ struct VocraApp: App {
           appDelegate.openMainWindow = {
             openWindow(id: "main")
             NSApp.activate(ignoringOtherApps: true)
+          }
+          // A lookup result renders in the main window now, so the shortcut has to raise it.
+          lookupPresenter.onPresentWindow = {
+            appDelegate.presentMainWindow()
           }
         }
     }

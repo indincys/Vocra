@@ -5,7 +5,6 @@ public enum LearningExplanationValidationError: Error, Equatable, CustomStringCo
   case missingBranch(String)
   case duplicateID(String, String)
   case emptyRequiredField(String)
-  case unknownRelationshipNodeReference(field: String, id: String)
 
   public var description: String {
     switch self {
@@ -17,8 +16,6 @@ public enum LearningExplanationValidationError: Error, Equatable, CustomStringCo
       "Duplicate ID in \(scope): \(id)."
     case .emptyRequiredField(let field):
       "Missing required text in \(field)."
-    case .unknownRelationshipNodeReference(let field, let id):
-      "Unknown relationship node reference in \(field): \(id)."
     }
   }
 }
@@ -92,52 +89,19 @@ public struct LearningExplanationValidator: Sendable {
   }
 
   private func validateSentenceAnalysis(_ analysis: SentenceAnalysis) throws {
-    // headline, sentence.text, and the fixed section titles are no longer model-generated
-    // (headline is unused; sentence.text is filled locally; titles have UI fallbacks), so
-    // they are not required here. relationshipDiagram / keyVocabulary may be empty on the
-    // first-screen document and arrive via a supplementary request.
+    // sentence.text is filled locally from the captured selection and the section titles are
+    // fixed UI labels, so neither is model-generated and neither is checked here.
+    // keyVocabulary may still be empty while the document is streaming in.
     try requireUniqueIDs(analysis.sentence.segments.map(\.id), scope: "sentence.segments")
     for segment in analysis.sentence.segments {
       try requireText(segment.text, field: "sentenceAnalysis.sentence.segments.\(segment.id).text")
+      try requireText(segment.labelZh, field: "sentenceAnalysis.sentence.segments.\(segment.id).labelZh")
     }
-    try requireUniqueIDs(analysis.relationshipDiagram.nodes.map(\.id), scope: "relationshipDiagram.nodes")
-    for node in analysis.relationshipDiagram.nodes {
-      try requireText(node.title, field: "sentenceAnalysis.relationshipDiagram.nodes.\(node.id).title")
-      try requireText(node.text, field: "sentenceAnalysis.relationshipDiagram.nodes.\(node.id).text")
+    for (index, item) in analysis.keyVocabulary.enumerated() {
+      try requireText(item.term, field: "sentenceAnalysis.keyVocabulary[\(index)].term")
+      try requireText(item.meaning, field: "sentenceAnalysis.keyVocabulary[\(index)].meaning")
     }
-    try validateRelationshipEdges(analysis.relationshipDiagram.edges, nodeIDs: Set(analysis.relationshipDiagram.nodes.map(\.id)))
-    var structureItemIDs: Set<String> = []
-    try validateStructureItems(analysis.structureBreakdown.items, scope: "structureBreakdown.items", seen: &structureItemIDs)
     try requireText(analysis.translation.text, field: "sentenceAnalysis.translation.text")
-  }
-
-  private func validateRelationshipEdges(_ edges: [RelationshipEdge], nodeIDs: Set<String>) throws {
-    for (index, edge) in edges.enumerated() {
-      let baseField = "sentenceAnalysis.relationshipDiagram.edges[\(index)]"
-      try requireText(edge.from, field: "\(baseField).from")
-      try requireText(edge.to, field: "\(baseField).to")
-      try requireText(edge.labelZh, field: "\(baseField).labelZh")
-      try requireText(edge.labelEn, field: "\(baseField).labelEn")
-
-      guard nodeIDs.contains(edge.from) else {
-        throw LearningExplanationValidationError.unknownRelationshipNodeReference(field: "\(baseField).from", id: edge.from)
-      }
-      guard nodeIDs.contains(edge.to) else {
-        throw LearningExplanationValidationError.unknownRelationshipNodeReference(field: "\(baseField).to", id: edge.to)
-      }
-    }
-  }
-
-  private func validateStructureItems(_ items: [StructureItem], scope: String, seen: inout Set<String>) throws {
-    for item in items {
-      try requireText(item.id, field: "\(scope).id")
-      try requireText(item.text, field: "sentenceAnalysis.\(scope).\(item.id).text")
-      if seen.contains(item.id) {
-        throw LearningExplanationValidationError.duplicateID(scope, item.id)
-      }
-      seen.insert(item.id)
-      try validateStructureItems(item.children, scope: scope, seen: &seen)
-    }
   }
 
   private func requireUniqueIDs(_ ids: [String], scope: String) throws {

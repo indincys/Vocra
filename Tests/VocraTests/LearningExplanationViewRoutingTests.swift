@@ -5,20 +5,8 @@ import VocraCore
 
 @MainActor
 final class LearningExplanationViewRoutingTests: XCTestCase {
-  func testPanelRendersSentenceLearningDocument() {
-    let view = ExplanationPanelView(
-      capturedText: CapturedText(
-        originalText: "She studies because she wants to improve.",
-        cleanedText: "She studies because she wants to improve.",
-        mode: .sentence,
-        sourceApp: "Tests"
-      ),
-      document: sentenceDocument(),
-      errorMessage: nil,
-      validationErrorMessage: nil,
-      onSwitchMode: { _ in },
-      onClose: {}
-    )
+  func testRouterRendersSentenceLearningDocument() {
+    let view = LearningExplanationView(document: sentenceDocument())
 
     XCTAssertNotNil(view.body)
   }
@@ -43,42 +31,12 @@ private func sentenceDocument() -> LearningExplanationDocument {
     sourceText: "She studies because she wants to improve.",
     language: LearningExplanationLanguage(source: "en", explanation: "zh-Hans"),
     sentenceAnalysis: SentenceAnalysis(
-      headline: LearningHeadline(title: "Cause and purpose", subtitle: "A sentence with motivation"),
       sentence: AnalyzedSentence(
         text: "She studies because she wants to improve.",
         segments: [
           SentenceSegment(id: "main", text: "She studies", role: "mainClause", labelZh: "主句", labelEn: "Main clause", color: .blue),
           SentenceSegment(id: "reason", text: "because she wants to improve", role: "reasonClause", labelZh: "原因", labelEn: "Reason", color: .green)
         ]
-      ),
-      structureBreakdown: StructureBreakdown(
-        title: "Structure",
-        items: [
-          StructureItem(
-            id: "root",
-            text: "She studies",
-            role: "mainClause",
-            labelZh: "主句",
-            labelEn: "Main clause",
-            children: [
-              StructureItem(id: "child", text: "because she wants to improve", role: "reasonClause", labelZh: "原因", labelEn: "Reason", children: [])
-            ]
-          )
-        ]
-      ),
-      relationshipDiagram: RelationshipDiagram(
-        nodes: [
-          RelationshipNode(id: "main", title: "Action", text: "She studies"),
-          RelationshipNode(id: "reason", title: "Reason", text: "she wants to improve")
-        ],
-        edges: [
-          RelationshipEdge(from: "reason", to: "main", labelZh: "解释原因", labelEn: "explains why")
-        ]
-      ),
-      logicSummary: LogicSummary(
-        title: "Logic",
-        points: ["The second clause explains the reason for the first."],
-        coreMeaning: "She studies with the goal of improving."
       ),
       translation: TranslationBlock(title: "Translation", text: "她学习，因为她想进步。"),
       keyVocabulary: [

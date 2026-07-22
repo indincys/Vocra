@@ -109,34 +109,29 @@ private enum BundledPromptTemplates {
       kind: .sentenceAnalysisSchema,
       body: """
       Analyze this English sentence for a Chinese learner and return ONE JSON object.
-      Output ONLY the fields shown below — do NOT echo the original sentence, and do NOT
-      add mode, sourceText, language, titles, headline, or any other field.
-      Generate the fields in exactly the order shown (translation first, then the trunk,
-      then the segments) so the reader sees the meaning and skeleton first.
+      Output ONLY the three fields shown below — do NOT echo the original sentence, and do
+      NOT add mode, sourceText, language, titles, or any other field.
+      Generate them in exactly this order (translation first) so the reader gets the meaning
+      while the rest is still streaming.
 
       {
         "sentenceAnalysis": {
           "translation": { "text": "<Chinese translation>" },
-          "structureBreakdown": {
-            "trunk": "<只保留主干后的核心句：主语 + 谓语 (+ 宾语/表语)，去掉所有定语、状语和从句>",
-            "trunkZh": "<trunk 的简洁中文意思>",
-            "items": [
-              { "id": "main-clause", "text": "<exact clause span>", "labelZh": "主句", "note": "<这个分句在本句里承担的具体作用：陈述/让步/条件/原因等>", "children": [] }
-            ]
-          },
           "sentence": {
             "segments": [
               { "id": "main-subject", "text": "<exact contiguous substring of the sentence>", "labelZh": "主语", "color": "blue", "note": "<这一成分在本句中的具体作用：修饰/引出/连接了什么，以及在这句话里的含义>" }
             ]
           },
-          "logicSummary": { "points": ["<Chinese explanation point>"], "coreMeaning": "<Chinese core meaning>" }
+          "keyVocabulary": [
+            { "term": "<word or phrase copied verbatim from the sentence>", "meaning": "<Chinese meaning in this sentence>", "note": "<用法/搭配提示，≤40字>" }
+          ]
         }
       }
 
-      Segment color must be one of: blue, green, orange, purple, pink, neutral.
-      segment.text MUST be an exact, contiguous substring of the original sentence (copy the words and spacing verbatim) so the app can underline it; never rewrite, merge non-adjacent words, or drop words. Mark the backbone densely (subject, predicate/verb, object, complement, key adverbials, connectives, clause boundaries); minor filler may be left unmarked. Group roles by color: subject=blue, predicate/object=green, adverbial/conjunction=orange, clause/connector=purple, contrast (but / yet)=pink, minor=neutral, with a matching labelZh (主语/谓语/宾语/状语/连词/定语从句/主句…).
-      Every segment and structureBreakdown item MUST include a "note" that is specific to THIS sentence (what it modifies, introduces, connects, or contrasts, and its meaning here) — teach it like a tutor, not a generic textbook definition. Keep every note ≤ 40 Chinese characters.
-      structureBreakdown.trunk is the sentence stripped to its core so the learner sees the skeleton; trunkZh is its short Chinese meaning.
+      segment.text MUST be an exact, contiguous substring of the original sentence (copy the words and spacing verbatim) so the app can underline it in place; never rewrite, merge non-adjacent words, or drop words. Mark the backbone densely (subject, predicate/verb, object, complement, key adverbials, connectives, clause boundaries); minor filler may be left unmarked.
+      Segment color must be one of: blue, green, orange, purple, pink, neutral. Group roles by color: subject=blue, predicate/object=green, adverbial/conjunction=orange, clause/connector=purple, contrast (but / yet)=pink, minor=neutral, with a matching labelZh (主语/谓语/宾语/状语/连词/定语从句/主句…).
+      Every segment MUST include a "note" specific to THIS sentence (what it modifies, introduces, connects, or contrasts, and its meaning here) — teach it like a tutor, not a generic textbook definition. Keep every note ≤ 40 Chinese characters.
+      keyVocabulary lists the 2-5 words or phrases in this sentence a learner most needs explained. Every term MUST appear verbatim in the sentence so the app can underline it there.
       Use 3-8 segments for diagramDensity full, and 1-4 for diagramDensity simple.
       Sentence: {{text}}
       """
@@ -166,33 +161,6 @@ private enum BundledPromptTemplates {
 
       If pronunciation is not useful for a phrase, use null. Keep examples as objects with sentence, translation, and note; note may be null or a short Chinese string. Keep each usageNote and commonMistake ≤ 40 Chinese characters.
       Text: {{text}}
-      """
-    ),
-    PromptTemplate(
-      kind: .sentenceSupplementSchema,
-      body: """
-      For this English sentence, return ONE JSON object with only a relationship diagram
-      and key vocabulary for a Chinese learner. Output ONLY the fields shown below.
-
-      {
-        "sentenceAnalysis": {
-          "relationshipDiagram": {
-            "nodes": [
-              { "id": "main", "title": "主句（主干）", "text": "<main clause>" },
-              { "id": "modifier", "title": "修饰/条件", "text": "<modifier or clause>" }
-            ],
-            "edges": [
-              { "from": "modifier", "to": "main", "labelZh": "在这种情境下" }
-            ]
-          },
-          "keyVocabulary": [
-            { "term": "<important word or phrase>", "meaning": "<Chinese meaning>", "note": "<Chinese usage note, ≤40字>" }
-          ]
-        }
-      }
-
-      Use 2-5 nodes capturing the sentence's main parts. Every edge has from and to referencing node ids, plus a Chinese labelZh describing how they relate. keyVocabulary lists the 2-5 most useful words/phrases from the sentence; keep each note ≤ 40 Chinese characters.
-      Sentence: {{text}}
       """
     ),
     PromptTemplate(
@@ -289,13 +257,19 @@ private enum BundledPromptTemplates {
       normalizedBody.contains("Use exactly this root shape and JSON value types")
         && normalizedBody.contains(#""sentence": { "text": "<selected sentence>", "segments": ["#)
         && normalizedBody.contains("Segment colors must be one of")
+        // The six-section era (headline / trunk / relationship diagram / logic summary).
+        // `trunkZh` and `structureBreakdown` only ever appeared in Vocra-bundled defaults,
+        // so matching them upgrades untouched installs without clobbering hand-edits.
+        || normalizedBody.contains(#""trunkZh""#)
+        || normalizedBody.contains(#""structureBreakdown""#)
+        || normalizedBody.contains(#""logicSummary""#)
     case .wordExplanationSchema:
       // The previous structured word default echoed the full envelope (a null
       // vocabularyCard sibling); the current default omits it.
       normalizedBody.contains("Use exactly this root shape and JSON value types")
         && normalizedBody.contains(#""wordExplanation": {"#)
         && normalizedBody.contains(#""vocabularyCard": null"#)
-    case .vocabularyCardSchema, .sentenceSupplementSchema:
+    case .vocabularyCardSchema:
       false
     }
   }

@@ -35,11 +35,16 @@ final class AppModel {
   let articleLibrary: ArticleLibraryModel
   /// Set when a collected article is waiting to be opened, so the UI can jump to it.
   var pendingArticleToOpen: UUID?
+  /// Bumped when a new lookup starts, so the main window can jump to 查词.
+  var lookupRequestRevision = 0
+  /// True while a lookup is running, so the 查词 section can show a spinner even before the
+  /// selection has been read.
+  var isLookupInFlight = false
 
   private let classifier: TextClassifier
   private let promptStore: UserDefaultsPromptStore
   private let settingsStore: UserDefaultsSettingsStore
-  private let apiKeyStore: KeychainAPIKeyStore
+  private let apiKeyStore: any APIKeyStore
   private let selectionReader: any SelectionReader
   private let vocabularyRepository: SQLiteVocabularyRepository
   private let reviewScheduler: ReviewScheduler
@@ -63,7 +68,7 @@ final class AppModel {
   /// Set when the on-disk database couldn't be opened and an in-memory fallback is in use.
   var databaseErrorMessage: String?
 
-  convenience init() {
+  convenience init(panelPresenter: any ExplanationPanelPresenting = MainWindowLookupPresenter()) {
     let repository: SQLiteVocabularyRepository
     var databaseError: String?
     do {
@@ -89,6 +94,7 @@ final class AppModel {
     let cache = DiskExplanationCache(directory: AppStorageLocations.explanationCacheDirectory())
     self.init(
       vocabularyRepository: repository,
+      panelPresenter: panelPresenter,
       explanationCache: cache,
       articleLibrary: ArticleLibraryModel(repository: articleRepository, explanationCache: cache)
     )
@@ -99,12 +105,12 @@ final class AppModel {
     classifier: TextClassifier = TextClassifier(),
     promptStore: UserDefaultsPromptStore = UserDefaultsPromptStore(),
     settingsStore: UserDefaultsSettingsStore = UserDefaultsSettingsStore(),
-    apiKeyStore: KeychainAPIKeyStore = KeychainAPIKeyStore(),
+    apiKeyStore: any APIKeyStore = FileAPIKeyStore(),
     selectionReader: any SelectionReader = MacSelectionReader(),
     vocabularyRepository: SQLiteVocabularyRepository,
     reviewScheduler: ReviewScheduler = ReviewScheduler(),
     shortcutService: any ShortcutRegistering = ShortcutService(),
-    panelPresenter: any ExplanationPanelPresenting = FloatingPanelController(),
+    panelPresenter: any ExplanationPanelPresenting = MainWindowLookupPresenter(),
     explanationCache: any ExplanationCaching = NoExplanationCache(),
     articleLibrary: ArticleLibraryModel? = nil,
     explanationProvider: ExplanationProvider? = nil,
@@ -153,9 +159,19 @@ final class AppModel {
   }
 
   func start() {
+    migrateAPIKeysFromKeychain()
     registerShortcut(settingsStore.loadKeyboardShortcut())
     registerCollectArticleShortcut(settingsStore.loadCollectArticleShortcut())
     articleLibrary.start()
+  }
+
+  /// Moves any API key still sitting in the system Keychain into the local encrypted file.
+  /// Idempotent, so it can run on every launch; it must happen before the first model call
+  /// so that call already reads from the file (see `APIKeyStore` for why the Keychain was
+  /// dropped). Failures are logged inside the migrator and never block startup.
+  private func migrateAPIKeysFromKeychain() {
+    let accounts = settingsStore.loadAPIProviderSettings().profiles.map(\.secretAccount)
+    APIKeyMigrator().migrate(accounts: accounts.isEmpty ? [APIKeyAccount.default] : accounts)
   }
 
   private func registerShortcut(_ shortcut: KeyboardShortcut) {
@@ -275,11 +291,8 @@ final class AppModel {
       latestValidationErrorMessage = nil
       refreshPanel()
 
-      if captured.mode == .sentence {
-        await loadSentenceSupplement(for: captured, requestID: requestID)
-      }
-
       await persistVocabularyIfNeeded(for: captured, explanation: document, requestID: requestID)
+      finishExplanationRequest(requestID)
 
       shortcutFlowLogger.info(
         "Shortcut handling finished in \(elapsedMilliseconds(from: flowStart, clock: clock), privacy: .public) ms."
@@ -292,6 +305,7 @@ final class AppModel {
       latestCapturedText = capturedForError
       latestDocument = nil
       applyError(error)
+      finishExplanationRequest(requestID)
       refreshPanel()
       shortcutFlowLogger.error(
         "Shortcut handling failed after \(elapsedMilliseconds(from: flowStart, clock: clock), privacy: .public) ms: \(String(describing: error), privacy: .public)"
@@ -352,17 +366,16 @@ final class AppModel {
       latestErrorRecovery = nil
       latestValidationErrorMessage = nil
       refreshPanel()
-      if adjusted.mode == .sentence {
-        await loadSentenceSupplement(for: adjusted, requestID: requestID)
-      }
       // Manually switching to word/phrase mode now saves to the notebook too, matching the
       // shortcut flow (previously only the shortcut flow auto-saved).
       await persistVocabularyIfNeeded(for: adjusted, explanation: document, requestID: requestID)
+      finishExplanationRequest(requestID)
     } catch {
       guard isCurrentExplanationRequest(requestID) else { return }
       latestCapturedText = adjusted
       latestDocument = nil
       applyError(error)
+      finishExplanationRequest(requestID)
       refreshPanel()
     }
   }
@@ -501,41 +514,9 @@ final class AppModel {
   private func partialSentenceSignature(_ analysis: SentenceAnalysis) -> Int {
     var score = 0
     if !analysis.translation.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { score += 1 }
-    if !analysis.structureBreakdown.trunk.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { score += 1 }
-    if !analysis.logicSummary.coreMeaning.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { score += 1 }
-    score += analysis.structureBreakdown.items.count
     score += analysis.sentence.segments.count
-    score += analysis.logicSummary.points.count
+    score += analysis.keyVocabulary.count
     return score
-  }
-
-  /// Fetches the relationship diagram + key vocabulary that were kept out of the
-  /// first-screen sentence request and merges them into the shown document. Best-effort:
-  /// a failure just leaves those sections empty. Skips work when the sections are already
-  /// present (e.g. served from a previously-merged cache entry).
-  private func loadSentenceSupplement(for captured: CapturedText, requestID: Int) async {
-    guard explanationProvider == nil, captured.mode == .sentence else { return }
-    guard let analysis = latestDocument?.sentenceAnalysis,
-          analysis.relationshipDiagram.edges.isEmpty, analysis.keyVocabulary.isEmpty
-    else { return }
-
-    let template = resolvedTemplate(for: .sentenceSupplementSchema)
-    let resolved = makeExplanationService()
-    guard let supplement = try? await resolved.service.sentenceSupplement(captured: captured, template: template) else { return }
-    guard isCurrentExplanationRequest(requestID),
-          var document = latestDocument,
-          var mergedAnalysis = document.sentenceAnalysis
-    else { return }
-
-    mergedAnalysis.relationshipDiagram = supplement.relationshipDiagram
-    mergedAnalysis.keyVocabulary = supplement.keyVocabulary
-    document.sentenceAnalysis = mergedAnalysis
-    latestDocument = document
-    refreshPanel()
-    // Re-store the merged document under the same key the main lookup used, so a later
-    // cache hit already includes the diagram + key vocabulary and skips this request.
-    let variant = cacheVariant(for: captured, templateBody: resolvedTemplate(for: .sentenceAnalysisSchema).body)
-    explanationCache.store(document, text: captured.cleanedText, mode: captured.mode, model: resolved.configuration.model, variant: variant)
   }
 
   /// Saves the looked-up word/phrase to the notebook. The card is synthesized locally from
@@ -632,6 +613,7 @@ final class AppModel {
       },
       onClose: { [weak self] in
         self?.cancelActiveRequest()
+        self?.isLookupInFlight = false
         self?.panelPresenter.close()
       }
     )
@@ -640,7 +622,16 @@ final class AppModel {
   private func beginExplanationRequest() -> Int {
     activeExplanationRequestID += 1
     lastPartialSignature = 0
+    lookupRequestRevision += 1
+    isLookupInFlight = true
     return activeExplanationRequestID
+  }
+
+  /// Clears the in-flight flag, but only for the request that is still current — a stale
+  /// request finishing must not stop the spinner for the newer one that replaced it.
+  private func finishExplanationRequest(_ requestID: Int) {
+    guard isCurrentExplanationRequest(requestID) else { return }
+    isLookupInFlight = false
   }
 
   private func isCurrentExplanationRequest(_ requestID: Int) -> Bool {

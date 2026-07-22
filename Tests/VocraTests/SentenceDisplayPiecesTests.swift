@@ -22,6 +22,57 @@ final class SentenceDisplayPiecesTests: XCTestCase {
     normalizedWords(pieces.map(\.text).joined(separator: " "))
   }
 
+  private func term(_ term: String, _ meaning: String) -> KeyVocabularyItem {
+    KeyVocabularyItem(term: term, meaning: meaning, note: "")
+  }
+
+  // MARK: Key vocabulary
+
+  /// A key word inside a larger role span must become its own tappable piece, so its
+  /// explanation can open under that word rather than under the whole clause.
+  func testSplitsRoleSpanAroundAKeyTerm() throws {
+    let text = "The committee reluctantly approved the proposal."
+    let pieces = sentenceDisplayPieces(
+      text: text,
+      segments: [segment("reluctantly approved the proposal", "谓语")],
+      keyVocabulary: [term("reluctantly", "不情愿地")]
+    )
+
+    XCTAssertEqual(reconstructed(pieces), normalizedWords(text))
+    let keyPiece = try XCTUnwrap(pieces.first { $0.keyTerm != nil })
+    XCTAssertEqual(keyPiece.text, "reluctantly")
+    // It sits inside the predicate, so it keeps the role too — the card shows both.
+    XCTAssertEqual(keyPiece.segment?.labelZh, "谓语")
+    XCTAssertTrue(pieces.contains { $0.text == "approved the proposal." && $0.keyTerm == nil })
+  }
+
+  /// A key term outside any marked span is still tappable on its own.
+  func testMarksKeyTermWithNoGrammaticalRole() {
+    let pieces = sentenceDisplayPieces(
+      text: "Codex works best when configured.",
+      segments: [segment("Codex", "主语")],
+      keyVocabulary: [term("configured", "配置好的")]
+    )
+
+    let keyPiece = pieces.first { $0.keyTerm != nil }
+    XCTAssertEqual(keyPiece?.text, "configured.")
+    XCTAssertNil(keyPiece?.segment)
+    XCTAssertTrue(keyPiece?.isExplainable ?? false)
+  }
+
+  /// A term the model invented that isn't in the sentence must not corrupt the tiling.
+  func testIgnoresKeyTermMissingFromTheSentence() {
+    let text = "Codex works best."
+    let pieces = sentenceDisplayPieces(
+      text: text,
+      segments: [],
+      keyVocabulary: [term("serendipity", "意外的运气")]
+    )
+
+    XCTAssertEqual(reconstructed(pieces), normalizedWords(text))
+    XCTAssertTrue(pieces.allSatisfy { $0.keyTerm == nil })
+  }
+
   /// The whole sentence must survive even when the model marks only a few spans.
   func testKeepsFullSentenceWhenSegmentsCoverOnlyPart() {
     let text = "More than 5 million people now use Codex. Codex is useful."

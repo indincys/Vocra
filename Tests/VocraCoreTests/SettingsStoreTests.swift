@@ -69,7 +69,7 @@ final class SettingsStoreTests: XCTestCase {
     XCTAssertEqual(providerSettings.activeProfileID, APIProviderProfile.defaultProfileID)
     XCTAssertEqual(providerSettings.activeProfile?.name, "Default")
     XCTAssertEqual(providerSettings.activeProfile?.configuration, .default)
-    XCTAssertEqual(providerSettings.activeProfile?.keychainAccount, KeychainAPIKeyStore.legacyAccount)
+    XCTAssertEqual(providerSettings.activeProfile?.secretAccount, APIKeyAccount.default)
   }
 
   func testUserDefaultsSettingsStorePersistsMultipleAPIProviderProfiles() throws {
@@ -94,7 +94,7 @@ final class SettingsStoreTests: XCTestCase {
 
     XCTAssertEqual(store.loadAPIProviderSettings(), providerSettings)
     XCTAssertEqual(store.loadAPIConfiguration(), anthropic.configuration)
-    XCTAssertEqual(anthropic.keychainAccount, "OpenAICompatibleAPIKey.\(anthropicID.uuidString)")
+    XCTAssertEqual(anthropic.secretAccount, "OpenAICompatibleAPIKey.\(anthropicID.uuidString)")
   }
 
   func testSavingAPIConfigurationUpdatesActiveProviderProfile() throws {

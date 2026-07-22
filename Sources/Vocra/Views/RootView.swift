@@ -36,6 +36,8 @@ struct RootView: View {
     // afterwards should land on it rather than on 今天.
     .onAppear(perform: consumePendingArticle)
     .onChange(of: appModel.pendingArticleToOpen) { _, _ in consumePendingArticle() }
+    // A shortcut lookup now renders in this window, so jump to 查词 whenever one starts.
+    .onChange(of: appModel.lookupRequestRevision) { _, _ in section = .lookup }
   }
 
   private func consumePendingArticle() {
@@ -122,6 +124,8 @@ struct RootView: View {
   @ViewBuilder
   private func content(cards: [VocabularyCard], metrics: DashboardMetrics) -> some View {
     switch section {
+    case .lookup:
+      LookupView(appModel: appModel)
     case .today:
       TodayView(
         metrics: metrics,
@@ -153,6 +157,7 @@ struct RootView: View {
 
 enum VocraSection: String, CaseIterable, Identifiable {
   case today
+  case lookup
   case reading
   case vocabulary
   case review
@@ -163,6 +168,7 @@ enum VocraSection: String, CaseIterable, Identifiable {
   var title: String {
     switch self {
     case .today: "今天"
+    case .lookup: "查词"
     case .reading: "阅读"
     case .vocabulary: "生词本"
     case .review: "复习"
@@ -173,6 +179,7 @@ enum VocraSection: String, CaseIterable, Identifiable {
   var systemImage: String {
     switch self {
     case .today: "house"
+    case .lookup: "text.magnifyingglass"
     case .reading: "text.book.closed"
     case .vocabulary: "book"
     case .review: "rectangle.stack"

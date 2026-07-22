@@ -14,7 +14,7 @@ extension VocabularyCard {
     guard let document = decodedDocument else { return "" }
     if let meaning = document.wordExplanation?.coreMeaning, !meaning.isEmpty { return meaning }
     if let meaning = document.vocabularyCard?.back.coreMeaning, !meaning.isEmpty { return meaning }
-    if let meaning = document.sentenceAnalysis?.logicSummary.coreMeaning, !meaning.isEmpty { return meaning }
+    if let meaning = document.sentenceAnalysis?.translation.text, !meaning.isEmpty { return meaning }
     return ""
   }
 

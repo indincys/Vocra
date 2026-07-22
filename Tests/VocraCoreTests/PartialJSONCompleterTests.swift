@@ -7,12 +7,12 @@ final class PartialJSONCompleterTests: XCTestCase {
   }
 
   func testClosesAfterFirstCompletedNestedObject() throws {
-    let partial = #"{ "sentenceAnalysis": { "translation": { "text": "配置好时效果最好。" }, "structureBreakdown": { "tru"#
+    let partial = #"{ "sentenceAnalysis": { "translation": { "text": "配置好时效果最好。" }, "sentence": { "segm"#
     let completed = try XCTUnwrap(PartialJSONCompleter.completedObject(from: partial))
 
     let document = try JSONDecoder().decode(LearningExplanationDocument.self, from: Data(completed.utf8))
     XCTAssertEqual(document.sentenceAnalysis?.translation.text, "配置好时效果最好。")
-    XCTAssertEqual(document.sentenceAnalysis?.structureBreakdown.trunk, "")
+    XCTAssertEqual(document.sentenceAnalysis?.sentence.segments, [])
   }
 
   func testClosesAfterPartialSegmentArray() throws {

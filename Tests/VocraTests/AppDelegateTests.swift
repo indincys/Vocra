@@ -19,4 +19,12 @@ final class AppDelegateTests: XCTestCase {
     XCTAssertTrue(didRequestMainWindow)
     XCTAssertFalse(shouldContinueDefaultHandling)
   }
+
+  /// Regression: closing the main window used to terminate the process (a `voluntary`
+  /// exit(0) in the system log), taking the menu bar item and the global shortcuts with it.
+  func testClosingLastWindowDoesNotTerminateTheApp() {
+    let delegate = AppDelegate()
+
+    XCTAssertFalse(delegate.applicationShouldTerminateAfterLastWindowClosed(NSApplication.shared))
+  }
 }

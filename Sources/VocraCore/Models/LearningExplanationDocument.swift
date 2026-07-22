@@ -85,71 +85,41 @@ public enum LearningColorToken: String, Codable, Equatable, Sendable {
   }
 }
 
+/// A sentence explained for a Chinese learner, deliberately kept to three things: the
+/// translation, the sentence split into labeled grammatical spans, and the words worth
+/// remembering. Earlier versions also asked the model for a relationship diagram, a logic
+/// summary, a headline, and a nested structure outline; they roughly tripled the generated
+/// token count for sections readers skipped, so they were removed.
 public struct SentenceAnalysis: Codable, Equatable, Sendable {
-  public var headline: LearningHeadline
   public var sentence: AnalyzedSentence
-  public var structureBreakdown: StructureBreakdown
-  public var relationshipDiagram: RelationshipDiagram
-  public var logicSummary: LogicSummary
   public var translation: TranslationBlock
   public var keyVocabulary: [KeyVocabularyItem]
 
   public init(
-    headline: LearningHeadline,
     sentence: AnalyzedSentence,
-    structureBreakdown: StructureBreakdown,
-    relationshipDiagram: RelationshipDiagram,
-    logicSummary: LogicSummary,
     translation: TranslationBlock,
     keyVocabulary: [KeyVocabularyItem]
   ) {
-    self.headline = headline
     self.sentence = sentence
-    self.structureBreakdown = structureBreakdown
-    self.relationshipDiagram = relationshipDiagram
-    self.logicSummary = logicSummary
     self.translation = translation
     self.keyVocabulary = keyVocabulary
   }
 
   private enum CodingKeys: String, CodingKey {
-    case headline
     case sentence
-    case structureBreakdown
-    case relationshipDiagram
-    case logicSummary
     case translation
     case keyVocabulary
   }
 
   public init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
-    // headline is unused by the UI and the fixed section titles have local fallbacks, so
-    // the prompt omits them; relationshipDiagram / keyVocabulary may arrive in a separate
-    // supplementary request. Everything here decodes-if-present with an empty default.
-    headline = try container.decodeIfPresent(LearningHeadline.self, forKey: .headline)
-      ?? LearningHeadline(title: "", subtitle: "")
+    // Everything decodes-if-present with an empty default so a partially-streamed document
+    // still renders (the panel promotes partials as sections arrive).
     sentence = try container.decodeIfPresent(AnalyzedSentence.self, forKey: .sentence)
       ?? AnalyzedSentence(text: "", segments: [])
-    structureBreakdown = try container.decodeIfPresent(StructureBreakdown.self, forKey: .structureBreakdown)
-      ?? StructureBreakdown(title: "", items: [])
-    relationshipDiagram = try container.decodeIfPresent(RelationshipDiagram.self, forKey: .relationshipDiagram)
-      ?? RelationshipDiagram(nodes: [], edges: [])
-    logicSummary = try container.decodeIfPresent(LogicSummary.self, forKey: .logicSummary)
-      ?? LogicSummary(title: "", points: [], coreMeaning: "")
     translation = try container.decodeIfPresent(TranslationBlock.self, forKey: .translation)
       ?? TranslationBlock(title: "", text: "")
     keyVocabulary = try container.decodeIfPresent([KeyVocabularyItem].self, forKey: .keyVocabulary) ?? []
-  }
-}
-
-public struct LearningHeadline: Codable, Equatable, Sendable {
-  public var title: String
-  public var subtitle: String
-
-  public init(title: String, subtitle: String) {
-    self.title = title
-    self.subtitle = subtitle
   }
 }
 
@@ -225,190 +195,6 @@ public struct SentenceSegment: Codable, Equatable, Sendable, Identifiable {
     labelEn = (try container.decodeIfPresent(String.self, forKey: .labelEn)) ?? ""
     color = try container.decode(LearningColorToken.self, forKey: .color)
     note = (try container.decodeIfPresent(String.self, forKey: .note)) ?? ""
-  }
-}
-
-public struct StructureBreakdown: Codable, Equatable, Sendable {
-  public var title: String
-  /// The stripped-down core sentence (subject + verb + object/complement) with
-  /// modifiers and subordinate clauses removed — the "trunk" a reader should
-  /// grab first. Optional in the JSON.
-  public var trunk: String
-  /// Concise Chinese gloss of `trunk`. Optional in the JSON.
-  public var trunkZh: String
-  public var items: [StructureItem]
-
-  public init(title: String, trunk: String = "", trunkZh: String = "", items: [StructureItem]) {
-    self.title = title
-    self.trunk = trunk
-    self.trunkZh = trunkZh
-    self.items = items
-  }
-
-  private enum CodingKeys: String, CodingKey {
-    case title
-    case trunk
-    case trunkZh
-    case items
-  }
-
-  public init(from decoder: Decoder) throws {
-    let container = try decoder.container(keyedBy: CodingKeys.self)
-    // `title` is a fixed UI label with a local fallback, so the prompt omits it.
-    title = (try container.decodeIfPresent(String.self, forKey: .title)) ?? ""
-    trunk = (try container.decodeIfPresent(String.self, forKey: .trunk)) ?? ""
-    trunkZh = (try container.decodeIfPresent(String.self, forKey: .trunkZh)) ?? ""
-    items = try container.decodeIfPresent([StructureItem].self, forKey: .items) ?? []
-  }
-}
-
-public struct StructureItem: Codable, Equatable, Sendable, Identifiable {
-  public var id: String
-  public var text: String
-  public var role: String
-  public var labelZh: String
-  public var labelEn: String
-  /// Sentence-specific Chinese note explaining what job this clause/structure
-  /// does in this exact sentence (states / modifies / connects what). Optional.
-  public var note: String
-  public var children: [StructureItem]
-
-  public init(
-    id: String,
-    text: String,
-    role: String,
-    labelZh: String,
-    labelEn: String,
-    note: String = "",
-    children: [StructureItem]
-  ) {
-    self.id = id
-    self.text = text
-    self.role = role
-    self.labelZh = labelZh
-    self.labelEn = labelEn
-    self.note = note
-    self.children = children
-  }
-
-  private enum CodingKeys: String, CodingKey {
-    case id
-    case text
-    case role
-    case labelZh
-    case labelEn
-    case note
-    case children
-  }
-
-  public init(from decoder: Decoder) throws {
-    let container = try decoder.container(keyedBy: CodingKeys.self)
-    id = try container.decode(String.self, forKey: .id)
-    text = try container.decode(String.self, forKey: .text)
-    // role / labelEn are unused by the UI (renders labelZh), so the prompt omits them.
-    role = (try container.decodeIfPresent(String.self, forKey: .role)) ?? ""
-    labelZh = try container.decode(String.self, forKey: .labelZh)
-    labelEn = (try container.decodeIfPresent(String.self, forKey: .labelEn)) ?? ""
-    note = (try container.decodeIfPresent(String.self, forKey: .note)) ?? ""
-    children = try container.decodeIfPresent([StructureItem].self, forKey: .children) ?? []
-  }
-}
-
-public struct RelationshipDiagram: Codable, Equatable, Sendable {
-  public var nodes: [RelationshipNode]
-  public var edges: [RelationshipEdge]
-
-  public init(nodes: [RelationshipNode], edges: [RelationshipEdge]) {
-    self.nodes = nodes
-    self.edges = edges
-  }
-
-  private enum CodingKeys: String, CodingKey {
-    case nodes
-    case edges
-  }
-
-  public init(from decoder: Decoder) throws {
-    let container = try decoder.container(keyedBy: CodingKeys.self)
-    nodes = try container.decodeIfPresent([RelationshipNode].self, forKey: .nodes) ?? []
-    edges = try container.decodeIfPresent([RelationshipEdge].self, forKey: .edges) ?? []
-  }
-}
-
-public struct RelationshipNode: Codable, Equatable, Sendable, Identifiable {
-  public var id: String
-  public var title: String
-  public var text: String
-
-  public init(id: String, title: String, text: String) {
-    self.id = id
-    self.title = title
-    self.text = text
-  }
-}
-
-public struct RelationshipEdge: Codable, Equatable, Sendable {
-  public var from: String
-  public var to: String
-  public var labelZh: String
-  public var labelEn: String
-
-  public init(from: String, to: String, labelZh: String, labelEn: String) {
-    self.from = from
-    self.to = to
-    self.labelZh = labelZh
-    self.labelEn = labelEn
-  }
-
-  private enum CodingKeys: String, CodingKey {
-    case from
-    case to
-    case label
-    case labelZh
-    case labelEn
-  }
-
-  public init(from decoder: Decoder) throws {
-    let container = try decoder.container(keyedBy: CodingKeys.self)
-    from = try container.decode(String.self, forKey: .from)
-    to = try container.decode(String.self, forKey: .to)
-    let sharedLabel = try container.decodeIfPresent(String.self, forKey: .label)?.trimmedNonEmpty
-    labelZh = try container.decodeIfPresent(String.self, forKey: .labelZh)?.trimmedNonEmpty ?? sharedLabel ?? "关系"
-    labelEn = try container.decodeIfPresent(String.self, forKey: .labelEn)?.trimmedNonEmpty ?? sharedLabel ?? "relationship"
-  }
-
-  public func encode(to encoder: Encoder) throws {
-    var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(from, forKey: .from)
-    try container.encode(to, forKey: .to)
-    try container.encode(labelZh, forKey: .labelZh)
-    try container.encode(labelEn, forKey: .labelEn)
-  }
-}
-
-public struct LogicSummary: Codable, Equatable, Sendable {
-  public var title: String
-  public var points: [String]
-  public var coreMeaning: String
-
-  public init(title: String, points: [String], coreMeaning: String) {
-    self.title = title
-    self.points = points
-    self.coreMeaning = coreMeaning
-  }
-
-  private enum CodingKeys: String, CodingKey {
-    case title
-    case points
-    case coreMeaning
-  }
-
-  public init(from decoder: Decoder) throws {
-    let container = try decoder.container(keyedBy: CodingKeys.self)
-    // `title` is a fixed UI label with a local fallback, so the prompt omits it.
-    title = (try container.decodeIfPresent(String.self, forKey: .title)) ?? ""
-    points = try container.decodeStringList(forKey: .points)
-    coreMeaning = (try container.decodeIfPresent(String.self, forKey: .coreMeaning)) ?? ""
   }
 }
 

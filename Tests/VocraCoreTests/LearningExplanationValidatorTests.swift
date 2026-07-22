@@ -100,17 +100,18 @@ final class LearningExplanationValidatorTests: XCTestCase {
 
   func testRejectsMissingSentenceRequiredTextFields() throws {
     let cases: [(String, (inout LearningExplanationDocument) -> Void)] = [
-      ("sentenceAnalysis.relationshipDiagram.nodes.node1.title", {
-        $0.sentenceAnalysis?.relationshipDiagram.nodes = [
-          RelationshipNode(id: "node1", title: "", text: "Codex")
+      ("sentenceAnalysis.translation.text", { $0.sentenceAnalysis?.translation.text = " " }),
+      ("sentenceAnalysis.sentence.segments.s1.labelZh", {
+        $0.sentenceAnalysis?.sentence.segments = [
+          SentenceSegment(id: "s1", text: "Codex", role: "subject", labelZh: " ", labelEn: "Subject", color: .blue)
         ]
       }),
-      ("sentenceAnalysis.relationshipDiagram.nodes.node1.text", {
-        $0.sentenceAnalysis?.relationshipDiagram.nodes = [
-          RelationshipNode(id: "node1", title: "Subject", text: "\n")
-        ]
+      ("sentenceAnalysis.keyVocabulary[0].term", {
+        $0.sentenceAnalysis?.keyVocabulary = [KeyVocabularyItem(term: " ", meaning: "最好", note: "")]
       }),
-      ("sentenceAnalysis.translation.text", { $0.sentenceAnalysis?.translation.text = " " })
+      ("sentenceAnalysis.keyVocabulary[0].meaning", {
+        $0.sentenceAnalysis?.keyVocabulary = [KeyVocabularyItem(term: "best", meaning: "\n", note: "")]
+      })
     ]
 
     for (field, mutate) in cases {
@@ -123,169 +124,12 @@ final class LearningExplanationValidatorTests: XCTestCase {
     }
   }
 
-  func testRejectsDuplicateStructureItemIDAcrossAncestorAndChild() throws {
+  /// Key vocabulary streams in after the segments, so an empty list mid-stream is valid.
+  func testAcceptsSentenceWithoutKeyVocabulary() throws {
     var document = validSentenceDocument()
-    document.sentenceAnalysis?.structureBreakdown.items = [
-      StructureItem(
-        id: "dup",
-        text: "Codex works best.",
-        role: "sentence",
-        labelZh: "句子",
-        labelEn: "Sentence",
-        children: [
-          StructureItem(id: "dup", text: "Codex", role: "subject", labelZh: "主语", labelEn: "Subject", children: [])
-        ]
-      )
-    ]
+    document.sentenceAnalysis?.keyVocabulary = []
 
-    XCTAssertThrowsError(try LearningExplanationValidator().validate(document, expectedMode: .sentence, expectedSourceText: "Codex works best.")) { error in
-      XCTAssertEqual(error as? LearningExplanationValidationError, .duplicateID("structureBreakdown.items", "dup"))
-    }
-  }
-
-  func testRejectsDuplicateStructureItemIDAcrossBranches() throws {
-    var document = validSentenceDocument()
-    document.sentenceAnalysis?.structureBreakdown.items = [
-      StructureItem(
-        id: "first",
-        text: "Codex",
-        role: "subject",
-        labelZh: "主语",
-        labelEn: "Subject",
-        children: [
-          StructureItem(id: "shared", text: "Codex", role: "noun", labelZh: "名词", labelEn: "Noun", children: [])
-        ]
-      ),
-      StructureItem(
-        id: "second",
-        text: "works best",
-        role: "predicate",
-        labelZh: "谓语",
-        labelEn: "Predicate",
-        children: [
-          StructureItem(id: "shared", text: "best", role: "adverb", labelZh: "副词", labelEn: "Adverb", children: [])
-        ]
-      )
-    ]
-
-    XCTAssertThrowsError(try LearningExplanationValidator().validate(document, expectedMode: .sentence, expectedSourceText: "Codex works best.")) { error in
-      XCTAssertEqual(error as? LearningExplanationValidationError, .duplicateID("structureBreakdown.items", "shared"))
-    }
-  }
-
-  func testRejectsInvalidRelationshipEdges() throws {
-    let cases: [(LearningExplanationValidationError, (inout LearningExplanationDocument) -> Void)] = [
-      (.emptyRequiredField("sentenceAnalysis.relationshipDiagram.edges[0].from"), {
-        $0.sentenceAnalysis?.relationshipDiagram = RelationshipDiagram(
-          nodes: [
-            RelationshipNode(id: "subject", title: "Subject", text: "Codex"),
-            RelationshipNode(id: "predicate", title: "Predicate", text: "works best")
-          ],
-          edges: [
-            RelationshipEdge(from: " ", to: "predicate", labelZh: "说明", labelEn: "describes")
-          ]
-        )
-      }),
-      (.emptyRequiredField("sentenceAnalysis.relationshipDiagram.edges[0].to"), {
-        $0.sentenceAnalysis?.relationshipDiagram = RelationshipDiagram(
-          nodes: [
-            RelationshipNode(id: "subject", title: "Subject", text: "Codex"),
-            RelationshipNode(id: "predicate", title: "Predicate", text: "works best")
-          ],
-          edges: [
-            RelationshipEdge(from: "subject", to: "", labelZh: "说明", labelEn: "describes")
-          ]
-        )
-      }),
-      (.emptyRequiredField("sentenceAnalysis.relationshipDiagram.edges[0].labelZh"), {
-        $0.sentenceAnalysis?.relationshipDiagram = RelationshipDiagram(
-          nodes: [
-            RelationshipNode(id: "subject", title: "Subject", text: "Codex"),
-            RelationshipNode(id: "predicate", title: "Predicate", text: "works best")
-          ],
-          edges: [
-            RelationshipEdge(from: "subject", to: "predicate", labelZh: "\n", labelEn: "describes")
-          ]
-        )
-      }),
-      (.emptyRequiredField("sentenceAnalysis.relationshipDiagram.edges[0].labelEn"), {
-        $0.sentenceAnalysis?.relationshipDiagram = RelationshipDiagram(
-          nodes: [
-            RelationshipNode(id: "subject", title: "Subject", text: "Codex"),
-            RelationshipNode(id: "predicate", title: "Predicate", text: "works best")
-          ],
-          edges: [
-            RelationshipEdge(from: "subject", to: "predicate", labelZh: "说明", labelEn: " ")
-          ]
-        )
-      }),
-      (.unknownRelationshipNodeReference(field: "sentenceAnalysis.relationshipDiagram.edges[0].from", id: "missing"), {
-        $0.sentenceAnalysis?.relationshipDiagram = RelationshipDiagram(
-          nodes: [
-            RelationshipNode(id: "subject", title: "Subject", text: "Codex"),
-            RelationshipNode(id: "predicate", title: "Predicate", text: "works best")
-          ],
-          edges: [
-            RelationshipEdge(from: "missing", to: "predicate", labelZh: "说明", labelEn: "describes")
-          ]
-        )
-      }),
-      (.unknownRelationshipNodeReference(field: "sentenceAnalysis.relationshipDiagram.edges[0].to", id: "missing"), {
-        $0.sentenceAnalysis?.relationshipDiagram = RelationshipDiagram(
-          nodes: [
-            RelationshipNode(id: "subject", title: "Subject", text: "Codex"),
-            RelationshipNode(id: "predicate", title: "Predicate", text: "works best")
-          ],
-          edges: [
-            RelationshipEdge(from: "subject", to: "missing", labelZh: "说明", labelEn: "describes")
-          ]
-        )
-      })
-    ]
-
-    for (expectedError, mutate) in cases {
-      var document = validSentenceDocument()
-      mutate(&document)
-
-      XCTAssertThrowsError(try LearningExplanationValidator().validate(document, expectedMode: .sentence, expectedSourceText: "Codex works best."), "\(expectedError)") { error in
-        XCTAssertEqual(error as? LearningExplanationValidationError, expectedError)
-      }
-    }
-  }
-
-  func testRejectsEmptyStructureItemText() throws {
-    let cases: [(String, [StructureItem])] = [
-      (
-        "sentenceAnalysis.structureBreakdown.items.root.text",
-        [
-          StructureItem(id: "root", text: " ", role: "sentence", labelZh: "句子", labelEn: "Sentence", children: [])
-        ]
-      ),
-      (
-        "sentenceAnalysis.structureBreakdown.items.child.text",
-        [
-          StructureItem(
-            id: "root",
-            text: "Codex works best.",
-            role: "sentence",
-            labelZh: "句子",
-            labelEn: "Sentence",
-            children: [
-              StructureItem(id: "child", text: "\n", role: "subject", labelZh: "主语", labelEn: "Subject", children: [])
-            ]
-          )
-        ]
-      )
-    ]
-
-    for (field, items) in cases {
-      var document = validSentenceDocument()
-      document.sentenceAnalysis?.structureBreakdown.items = items
-
-      XCTAssertThrowsError(try LearningExplanationValidator().validate(document, expectedMode: .sentence, expectedSourceText: "Codex works best."), field) { error in
-        XCTAssertEqual(error as? LearningExplanationValidationError, .emptyRequiredField(field))
-      }
-    }
+    XCTAssertNoThrow(try LearningExplanationValidator().validate(document, expectedMode: .sentence, expectedSourceText: "Codex works best."))
   }
 
   func testAcceptsWhitespaceNormalizedSourceText() throws {
@@ -301,18 +145,14 @@ final class LearningExplanationValidatorTests: XCTestCase {
       sourceText: "Codex works best.",
       language: LearningExplanationLanguage(source: "en", explanation: "zh-Hans"),
       sentenceAnalysis: SentenceAnalysis(
-        headline: LearningHeadline(title: "例句解析", subtitle: "Sentence Analysis"),
         sentence: AnalyzedSentence(
           text: "Codex works best.",
           segments: [
             SentenceSegment(id: "s1", text: "Codex", role: "subject", labelZh: "主语", labelEn: "Subject", color: .blue)
           ]
         ),
-        structureBreakdown: StructureBreakdown(title: "结构解析", items: []),
-        relationshipDiagram: RelationshipDiagram(nodes: [], edges: []),
-        logicSummary: LogicSummary(title: "核心含义", points: ["Codex 是主语。"], coreMeaning: "Codex 效果最好。"),
         translation: TranslationBlock(title: "例句翻译", text: "Codex 效果最好。"),
-        keyVocabulary: []
+        keyVocabulary: [KeyVocabularyItem(term: "best", meaning: "最好", note: "")]
       ),
       wordExplanation: nil,
       vocabularyCard: nil,

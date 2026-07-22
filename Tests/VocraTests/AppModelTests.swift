@@ -501,16 +501,12 @@ private func testSentenceDocument(text: String) -> LearningExplanationDocument {
     sourceText: text,
     language: LearningExplanationLanguage(source: "en", explanation: "zh-Hans"),
     sentenceAnalysis: SentenceAnalysis(
-      headline: LearningHeadline(title: "Sentence", subtitle: "Analysis"),
       sentence: AnalyzedSentence(
         text: text,
         segments: [
           SentenceSegment(id: "s1", text: text, role: "sentence", labelZh: "句子", labelEn: "Sentence", color: .blue)
         ]
       ),
-      structureBreakdown: StructureBreakdown(title: "Structure", items: []),
-      relationshipDiagram: RelationshipDiagram(nodes: [], edges: []),
-      logicSummary: LogicSummary(title: "Meaning", points: ["Point for \(text)"], coreMeaning: "Meaning for \(text)"),
       translation: TranslationBlock(title: "Translation", text: "Translation for \(text)"),
       keyVocabulary: []
     ),

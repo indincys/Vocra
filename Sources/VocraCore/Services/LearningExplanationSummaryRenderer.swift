@@ -27,8 +27,9 @@ public struct LearningExplanationSummaryRenderer: Sendable {
     return [
       document.sourceText,
       analysis.translation.text,
-      analysis.logicSummary.coreMeaning,
-      analysis.logicSummary.points.joined(separator: "\n")
+      analysis.keyVocabulary
+        .map { [$0.term, $0.meaning].filter { !$0.isEmpty }.joined(separator: " — ") }
+        .joined(separator: "\n")
     ]
     .filter { !$0.isEmpty }
     .joined(separator: "\n\n")

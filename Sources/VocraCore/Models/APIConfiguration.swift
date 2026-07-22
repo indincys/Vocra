@@ -76,11 +76,9 @@ public struct APIProviderProfile: Codable, Equatable, Identifiable, Sendable {
     self.configuration = configuration
   }
 
-  public var keychainAccount: String {
-    if id == Self.defaultProfileID {
-      return KeychainAPIKeyStore.legacyAccount
-    }
-    return "\(KeychainAPIKeyStore.legacyAccount).\(id.uuidString)"
+  /// The account this profile's API key is stored under (see ``APIKeyStore``).
+  public var secretAccount: String {
+    APIKeyAccount.forProfile(id: id, isDefault: id == Self.defaultProfileID)
   }
 }
 

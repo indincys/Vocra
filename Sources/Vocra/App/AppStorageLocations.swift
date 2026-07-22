@@ -1,19 +1,13 @@
 import Foundation
+import VocraCore
 
 /// Where Vocra keeps its on-disk state.
 ///
-/// The dev and release builds use different folders (keyed off the bundle id) so a debug run
-/// never touches the installed app's notebook, cache, or reading library.
+/// The directory itself is resolved by `VocraCore.VocraStorageLocations` so that VocraCore
+/// types which need it on their own (the encrypted API key vault) land in the same folder.
 enum AppStorageLocations {
-  static var folderName: String {
-    Bundle.main.bundleIdentifier == "com.indincys.Vocra.dev" ? "Vocra Dev" : "Vocra"
-  }
-
   static func supportDirectory() -> URL {
-    let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-    let folder = support.appending(path: folderName, directoryHint: .isDirectory)
-    try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-    return folder
+    VocraStorageLocations.supportDirectory()
   }
 
   /// Vocabulary notebook + review scheduling.

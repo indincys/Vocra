@@ -783,11 +783,11 @@ struct SettingsView: View {
     }
   }
 
-  private func apiKeyStore(for profileID: UUID) -> KeychainAPIKeyStore {
-    let account = profileID == APIProviderProfile.defaultProfileID
-      ? KeychainAPIKeyStore.legacyAccount
-      : "\(KeychainAPIKeyStore.legacyAccount).\(profileID.uuidString)"
-    return KeychainAPIKeyStore(account: account)
+  private func apiKeyStore(for profileID: UUID) -> FileAPIKeyStore {
+    FileAPIKeyStore(account: APIKeyAccount.forProfile(
+      id: profileID,
+      isDefault: profileID == APIProviderProfile.defaultProfileID
+    ))
   }
 
   private var reminderTimeBinding: Binding<Date> {

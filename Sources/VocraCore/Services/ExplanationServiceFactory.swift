@@ -2,8 +2,8 @@ import Foundation
 
 /// Assembles a `StructuredExplanationService` for the currently-active API profile.
 ///
-/// Resolving the profile, its per-profile Keychain account, and the learning preferences has
-/// to happen per call (the user can switch providers mid-session), so this exists as a small
+/// Resolving the profile, its per-profile key account, and the learning preferences has to
+/// happen per call (the user can switch providers mid-session), so this exists as a small
 /// factory shared by every caller that needs the model — the lookup flow and the article
 /// reader alike — instead of being duplicated in each.
 public struct ExplanationServiceFactory: Sendable {
@@ -12,7 +12,7 @@ public struct ExplanationServiceFactory: Sendable {
 
   public init(
     settingsStore: any SettingsStore = UserDefaultsSettingsStore(),
-    fallbackKeyStore: any APIKeyStore = KeychainAPIKeyStore()
+    fallbackKeyStore: any APIKeyStore = FileAPIKeyStore()
   ) {
     self.settingsStore = settingsStore
     self.fallbackKeyStore = fallbackKeyStore
@@ -22,7 +22,7 @@ public struct ExplanationServiceFactory: Sendable {
     let activeProfile = settingsStore.loadAPIProviderSettings().activeProfile
     let configuration = activeProfile?.configuration ?? settingsStore.loadAPIConfiguration()
     let apiKeyStore: any APIKeyStore = activeProfile
-      .map { KeychainAPIKeyStore(account: $0.keychainAccount) } ?? fallbackKeyStore
+      .map { FileAPIKeyStore(account: $0.secretAccount) } ?? fallbackKeyStore
     let client = OpenAICompatibleClient(
       configuration: configuration,
       apiKeyProvider: { try apiKeyStore.readAPIKey() }
