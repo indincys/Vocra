@@ -3,6 +3,38 @@ import XCTest
 @testable import VocraCore
 
 final class SettingsStoreTests: XCTestCase {
+  func testCollectArticleShortcutDefaultsToOptionShiftSpaceAndPersists() throws {
+    let suiteName = "SettingsStoreTests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let store = UserDefaultsSettingsStore(defaults: defaults)
+
+    XCTAssertEqual(store.loadCollectArticleShortcut(), .defaultCollectArticleShortcut)
+    // The two global shortcuts must not start out bound to the same combination.
+    XCTAssertNotEqual(store.loadCollectArticleShortcut(), store.loadKeyboardShortcut())
+
+    let shortcut = KeyboardShortcut(keyCode: UInt32(kVK_ANSI_R), modifiers: UInt32(controlKey))
+    store.saveCollectArticleShortcut(shortcut)
+
+    XCTAssertEqual(store.loadCollectArticleShortcut(), shortcut)
+    // Saving one slot must not disturb the other.
+    XCTAssertEqual(store.loadKeyboardShortcut(), .defaultShortcut)
+  }
+
+  func testArticleRetentionDefaultsTo30DaysAndPersistsForever() throws {
+    let suiteName = "SettingsStoreTests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let store = UserDefaultsSettingsStore(defaults: defaults)
+
+    XCTAssertEqual(store.loadArticleRetention().days, 30)
+
+    // 0 is a meaningful value ("keep forever"), so it must survive a round trip rather than
+    // being read back as "unset" and reset to the default.
+    store.saveArticleRetention(.forever)
+    XCTAssertTrue(store.loadArticleRetention().keepsForever)
+  }
+
   func testDefaultAPIConfigurationUsesOpenAICompatibleDefaults() {
     XCTAssertEqual(APIConfiguration.default.baseURL.absoluteString, "https://api.openai.com/v1")
     XCTAssertEqual(APIConfiguration.default.model, "gpt-5.1-mini")

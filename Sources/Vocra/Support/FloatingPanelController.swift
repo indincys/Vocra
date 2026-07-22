@@ -21,6 +21,8 @@ final class FloatingPanelController: ExplanationPanelPresenting {
   /// Latest dismissal handler from `show`. Esc / click-outside route through this so the
   /// in-flight lookup gets cancelled, not just visually hidden.
   private var onCloseHandler: (() -> Void)?
+  /// Auto-dismissal timer for the transient notice toast.
+  private var noticeDismissalTask: Task<Void, Never>?
   private static let resultSize = CGSize(width: 540, height: 660)
 
   func show(
@@ -30,6 +32,9 @@ final class FloatingPanelController: ExplanationPanelPresenting {
     onClose: @escaping () -> Void
   ) {
     onCloseHandler = onClose
+    // A lookup started while a collect confirmation is still up must not inherit its timer.
+    noticeDismissalTask?.cancel()
+    noticeDismissalTask = nil
     let isLoading = content.document == nil && content.errorMessage == nil && content.validationErrorMessage == nil
     if isLoading {
       presentLoadingHUD(
@@ -52,7 +57,27 @@ final class FloatingPanelController: ExplanationPanelPresenting {
 
   func close() {
     isShowingResult = false
+    noticeDismissalTask?.cancel()
+    noticeDismissalTask = nil
     panel?.orderOut(nil)
+  }
+
+  func presentNotice(_ notice: PanelNotice) {
+    let panel = existingOrCreatePanel()
+    isShowingHUD = false
+    // Not a "result": click-outside dismissal stays off so the toast can't swallow the click
+    // the user makes to get back to what they were reading.
+    isShowingResult = false
+    setRootView(PanelNoticeView(notice: notice))
+    panel.setFrame(bottomRightFrame(size: PanelNoticeView.size), display: true, animate: false)
+    panel.orderFrontRegardless()
+
+    noticeDismissalTask?.cancel()
+    noticeDismissalTask = Task { @MainActor [weak self] in
+      try? await Task.sleep(for: .seconds(2.2))
+      guard !Task.isCancelled else { return }
+      self?.close()
+    }
   }
 
   func updateProgress(receivedCharacters: Int) {

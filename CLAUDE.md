@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Vocra is a macOS 26+ menu bar app for reading English on a Mac: select text anywhere, press a global shortcut (`Option-Space` by default), and Vocra reads the selection, classifies it locally as `word`/`phrase`/`sentence`, sends it to an OpenAI-compatible model, and renders a structured explanation in a floating panel. Words and phrases are saved to a local SQLite notebook for spaced-repetition review; sentences are not.
 
+A second global shortcut (`Option-Shift-Space` by default) collects a **long selection** — a paragraph or a whole article — into the app's 阅读 (reading) section instead, where it is studied sentence by sentence.
+
 The app UI is in Chinese — it targets Chinese speakers learning English. Menu titles, button labels, and user-facing strings are Chinese; keep new UI strings consistent with that.
 
 ## Build, Run, Test
@@ -52,13 +54,28 @@ Two SwiftPM targets, one dependency (Sparkle, for in-app updates):
 5. **Validate + repair** — `StructuredExplanationService` decodes into `LearningExplanationDocument`, validates it, and on failure **retries exactly once** with a repair prompt that includes the validation error and the bad output.
 6. **Show + persist** — result renders in the `FloatingPanelController`; for word/phrase modes a second call generates a vocabulary card that's upserted into SQLite (dedup by normalized text).
 
+### The reading pipeline (collect shortcut → 阅读 section)
+
+`AppModel.handleCollectArticle()` is the second entry point, and reuses the pieces above:
+
+1. **Read selection** — the same `SelectionReader`.
+2. **Segment locally** — `ArticleSegmenter` folds soft-wrapped lines back together (PDF/web copy), heals hyphenation across line breaks, splits paragraphs on blank lines, and tokenizes sentences with `NLTokenizer`. `ArticleLengthPolicy` guards against collecting a stray word.
+3. **Persist** — `SQLiteArticleRepository` stores the article plus one row per sentence in **its own database file** (`vocra-articles.sqlite`), separate from the vocabulary notebook so the two schemas migrate independently.
+4. **Analyze in the background** — `ArticleLibraryModel` walks the unanalyzed sentences two at a time, calling the same `StructuredExplanationService` in `.sentence` mode, and writes each `LearningExplanationDocument` back onto its sentence row. Reopening an article is then a pure local read. Failed sentences are parked (not retried in a loop) until the user retries explicitly.
+5. **Render** — `ArticleReaderView` shows every sentence with its grammar colors inline; clicking one expands the full `SentenceLearningView` breakdown **directly beneath that sentence**, never in a separate pane.
+
+Articles have a retention window (default 30 days from last open, configurable in Settings). The sweep runs at launch and on setting change, and also purges disk-cached explanations of the same age.
+
 ### Key architectural conventions
 
 - **`LearningExplanationDocument` is the contract.** The model returns structured JSON, not Markdown, so the UI stays stable across prompt edits. It carries a `schemaVersion`; the prompt Contract pins it to `currentSchemaVersion`. Changing the document shape means updating the model, the validator, the schema prompts, and the SwiftUI renderers together.
 - **Stale-request guarding.** `handleShortcut` increments an `activeExplanationRequestID` and checks `isCurrentExplanationRequest` after every `await`, so a newer lookup discards an in-flight older one's results. Preserve this pattern when adding async steps.
 - **Dependency injection for testability.** `AppModel.init` takes every store/service/reader/presenter as a parameter (with production defaults), plus optional `explanationProvider`/`vocabularyCardProvider` closures that bypass the network entirely. Tests inject fakes; don't hardcode singletons inside `AppModel`.
 - **`@MainActor @Observable`.** `AppModel` is main-actor and drives SwiftUI via `@Observable`. `vocabularyRevision` is a manual counter bumped on writes to force SwiftUI re-reads of SQLite-backed data.
-- **Storage boundaries.** Vocabulary and review data live in SQLite (`SQLiteVocabularyRepository` over a thin `SQLiteDatabase`) in Application Support. Settings/prompts/preferences live in `UserDefaults`. The **API key lives only in Keychain** (`KeychainAPIKeyStore`), never in the DB — per-profile keys use a `keychainAccount`.
+- **Storage boundaries.** Vocabulary and review data live in SQLite (`SQLiteVocabularyRepository` over a thin `SQLiteDatabase`) in Application Support; collected articles live in a second SQLite file (`SQLiteArticleRepository`). All paths come from `AppStorageLocations`. Settings/prompts/preferences live in `UserDefaults`. The **API key lives only in Keychain** (`KeychainAPIKeyStore`), never in the DB — per-profile keys use a `keychainAccount`.
+- **One model factory.** `ExplanationServiceFactory` resolves the active API profile + its Keychain account + learning preferences into a `StructuredExplanationService`. Both the lookup flow and the article reader go through it; don't re-derive that assembly.
+- **Global shortcuts are slotted.** `ShortcutService` installs one Carbon event handler for the process and routes each keypress by `EventHotKeyID` to a `ShortcutSlot` (`.lookup`, `.collectArticle`). Adding a third shortcut means adding a slot, not a second service.
+- **Background launch.** `LaunchAtLoginService` wraps `SMAppService.mainApp`. `AppDelegate` checks `NSApplication.launchIsDefaultUserInfoKey`: a login-item start stays `.accessory` (menu bar only, no Dock icon, no focus steal) and is promoted to `.regular` the first time the main window opens.
 - **Multiple API profiles.** Settings support several OpenAI-compatible `APIProfile`s; `AppModel` resolves the active profile's `configuration` + per-profile Keychain account before each call, falling back to the single-config settings.
 
 ## Release

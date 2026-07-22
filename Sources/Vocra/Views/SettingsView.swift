@@ -97,6 +97,12 @@ private struct APIProfileForm: Identifiable, Equatable {
   }
 }
 
+/// Which global shortcut the recorder is currently capturing for.
+enum ShortcutRecordingTarget: Equatable {
+  case lookup
+  case collectArticle
+}
+
 struct SettingsSchemaPromptEditor: Equatable {
   let title: String
   let kind: PromptKind
@@ -129,6 +135,7 @@ struct SettingsView: View {
   private let settingsStore = UserDefaultsSettingsStore()
   private let promptStore = UserDefaultsPromptStore()
   private let reminderService = ReviewReminderService()
+  private let launchAtLogin: any LaunchAtLoginManaging = LaunchAtLoginService()
 
   @State private var apiProfiles: [APIProfileForm] = []
   @State private var activeProfileID = APIProviderProfile.defaultProfileID
@@ -144,7 +151,10 @@ struct SettingsView: View {
   @State private var chineseStyle = LearningPreferences.ChineseStyle.teacherLike
   @State private var diagramDensity = LearningPreferences.DiagramDensity.full
   @State private var keyboardShortcut = VocraCore.KeyboardShortcut.defaultShortcut
-  @State private var isRecordingShortcut = false
+  @State private var collectArticleShortcut = VocraCore.KeyboardShortcut.defaultCollectArticleShortcut
+  @State private var recordingTarget: ShortcutRecordingTarget?
+  @State private var launchAtLoginEnabled = false
+  @State private var articleRetention = ArticleRetention.default
   @State private var statusMessage = ""
   @AppStorage("vocra.voiceAccent") private var voiceAccent = "us"
   @AppStorage("vocra.autoSpeak") private var autoSpeak = true
@@ -159,7 +169,9 @@ struct SettingsView: View {
           .font(.system(size: 24, weight: .bold))
           .foregroundStyle(VocraTheme.ink900)
 
+        startupSection
         shortcutSection
+        readingSection
         apiSection
         speechSection
         learningSection
@@ -181,10 +193,13 @@ struct SettingsView: View {
     }
     .scrollContentBackground(.hidden)
     .overlay {
-      ShortcutRecorderView(isRecording: $isRecordingShortcut) { shortcut in
-        keyboardShortcut = shortcut
-        isRecordingShortcut = false
-        saveKeyboardShortcut()
+      ShortcutRecorderView(
+        isRecording: Binding(
+          get: { recordingTarget != nil },
+          set: { if !$0 { recordingTarget = nil } }
+        )
+      ) { shortcut in
+        applyRecordedShortcut(shortcut)
       }
       .frame(width: 1, height: 1)
       .accessibilityHidden(true)
@@ -195,22 +210,69 @@ struct SettingsView: View {
 
   // MARK: Sections
 
+  private var startupSection: some View {
+    sectionCard("power", "启动") {
+      row("开机自动启动", "登录后在后台运行，只显示菜单栏图标") {
+        Toggle("", isOn: Binding(get: { launchAtLoginEnabled }, set: { setLaunchAtLogin($0) }))
+          .toggleStyle(.switch).labelsHidden().tint(VocraTheme.accent)
+      }
+    }
+  }
+
   private var shortcutSection: some View {
     sectionCard("command", "全局快捷键") {
-      row("划词查询 / 解析", "在任意 App 中选中文本后触发") {
-        keyCapRow(keyboardShortcut.displayString)
-      }
+      shortcutRow(
+        title: "划词查询 / 解析",
+        description: "在任意 App 中选中文本后触发",
+        shortcut: keyboardShortcut,
+        target: .lookup,
+        defaultShortcut: .defaultShortcut
+      )
       rowDivider
-      row("录制快捷键", isRecordingShortcut ? "请按下新的组合键，Esc 取消" : nil) {
-        HStack(spacing: 8) {
-          Button(isRecordingShortcut ? "录制中…" : "录制") { isRecordingShortcut.toggle() }
-            .buttonStyle(VocraGhostButtonStyle())
-          Button("恢复默认") {
-            keyboardShortcut = .defaultShortcut
-            saveKeyboardShortcut()
-          }
-          .buttonStyle(VocraGhostButtonStyle())
+      shortcutRow(
+        title: "收录长文到阅读区",
+        description: "选中段落或整篇文章后触发，收录后在后台逐句解析",
+        shortcut: collectArticleShortcut,
+        target: .collectArticle,
+        defaultShortcut: .defaultCollectArticleShortcut
+      )
+    }
+  }
+
+  private func shortcutRow(
+    title: String,
+    description: String,
+    shortcut: VocraCore.KeyboardShortcut,
+    target: ShortcutRecordingTarget,
+    defaultShortcut: VocraCore.KeyboardShortcut
+  ) -> some View {
+    let isRecording = recordingTarget == target
+    return row(title, isRecording ? "请按下新的组合键，Esc 取消" : description) {
+      HStack(spacing: 8) {
+        keyCapRow(shortcut.displayString)
+        Button(isRecording ? "录制中…" : "录制") {
+          recordingTarget = isRecording ? nil : target
         }
+        .buttonStyle(VocraGhostButtonStyle())
+        Button("恢复默认") {
+          apply(defaultShortcut, to: target)
+        }
+        .buttonStyle(VocraGhostButtonStyle())
+      }
+    }
+  }
+
+  private var readingSection: some View {
+    sectionCard("text.book.closed", "阅读区") {
+      row("收录内容保留时长", "超过这个时间没有打开的文章会连同解析结果一起清除") {
+        VocraSegmented(
+          options: ArticleRetention.options.map { ($0.days, $0.displayName) },
+          selection: Binding(
+            get: { articleRetention.days },
+            set: { saveArticleRetention(ArticleRetention(days: $0)) }
+          )
+        )
+        .frame(width: 260)
       }
     }
   }
@@ -543,6 +605,33 @@ struct SettingsView: View {
     sentencePrompt = promptStore.template(for: SettingsSchemaPromptEditors.sentence.kind)?.body ?? ""
     cardPrompt = promptStore.template(for: SettingsSchemaPromptEditors.card.kind)?.body ?? ""
     keyboardShortcut = settingsStore.loadKeyboardShortcut()
+    collectArticleShortcut = settingsStore.loadCollectArticleShortcut()
+    articleRetention = settingsStore.loadArticleRetention()
+    launchAtLoginEnabled = launchAtLogin.isEnabled
+  }
+
+  private func setLaunchAtLogin(_ enabled: Bool) {
+    do {
+      try launchAtLogin.setEnabled(enabled)
+      launchAtLoginEnabled = launchAtLogin.isEnabled
+      if enabled, launchAtLogin.isBlockedBySystemSettings {
+        statusMessage = "已登记开机启动，但需要在「系统设置 › 通用 › 登录项」中允许 Vocra。"
+      } else {
+        statusMessage = enabled ? "已开启开机自动启动。" : "已关闭开机自动启动。"
+      }
+    } catch {
+      launchAtLoginEnabled = launchAtLogin.isEnabled
+      statusMessage = "无法修改开机启动：\(error.localizedDescription)"
+    }
+  }
+
+  private func saveArticleRetention(_ retention: ArticleRetention) {
+    articleRetention = retention
+    settingsStore.saveArticleRetention(retention)
+    NotificationCenter.default.post(name: .vocraArticleRetentionDidChange, object: nil)
+    statusMessage = retention.keepsForever
+      ? "收录内容将永久保留。"
+      : "收录内容超过 \(retention.days) 天未打开会自动清除。"
   }
 
   private func saveAPISettings() {
@@ -623,14 +712,40 @@ struct SettingsView: View {
     statusMessage = "释义偏好已保存。"
   }
 
-  private func saveKeyboardShortcut() {
-    settingsStore.saveKeyboardShortcut(keyboardShortcut)
-    NotificationCenter.default.post(
-      name: .vocraKeyboardShortcutDidChange,
-      object: nil,
-      userInfo: [VocraNotificationUserInfoKey.keyboardShortcut: keyboardShortcut]
-    )
-    statusMessage = "快捷键已保存：\(keyboardShortcut.displayString)。"
+  private func applyRecordedShortcut(_ shortcut: VocraCore.KeyboardShortcut) {
+    guard let target = recordingTarget else { return }
+    recordingTarget = nil
+    apply(shortcut, to: target)
+  }
+
+  /// Saves a shortcut for one slot, refusing a combination already bound to the other so the
+  /// two can't shadow each other (Carbon would simply fail the second registration).
+  private func apply(_ shortcut: VocraCore.KeyboardShortcut, to target: ShortcutRecordingTarget) {
+    let other = target == .lookup ? collectArticleShortcut : keyboardShortcut
+    guard shortcut != other else {
+      statusMessage = "\(shortcut.displayString) 已被另一个功能占用，请换一个组合键。"
+      return
+    }
+
+    switch target {
+    case .lookup:
+      keyboardShortcut = shortcut
+      settingsStore.saveKeyboardShortcut(shortcut)
+      NotificationCenter.default.post(
+        name: .vocraKeyboardShortcutDidChange,
+        object: nil,
+        userInfo: [VocraNotificationUserInfoKey.keyboardShortcut: shortcut]
+      )
+    case .collectArticle:
+      collectArticleShortcut = shortcut
+      settingsStore.saveCollectArticleShortcut(shortcut)
+      NotificationCenter.default.post(
+        name: .vocraKeyboardShortcutDidChange,
+        object: nil,
+        userInfo: [VocraNotificationUserInfoKey.collectArticleShortcut: shortcut]
+      )
+    }
+    statusMessage = "快捷键已保存：\(shortcut.displayString)。"
   }
 
   private func currentAPIConfiguration() -> APIConfiguration? {

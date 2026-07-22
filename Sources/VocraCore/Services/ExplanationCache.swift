@@ -11,6 +11,33 @@ import Foundation
 public protocol ExplanationCaching: Sendable {
   func cached(text: String, mode: ExplanationMode, model: String, variant: String) -> LearningExplanationDocument?
   func store(_ document: LearningExplanationDocument, text: String, mode: ExplanationMode, model: String, variant: String)
+  /// Drops entries untouched since `date`. Called with the article-retention window so
+  /// cached parses don't outlive the material they belong to.
+  func purge(unusedSince date: Date)
+}
+
+public extension ExplanationCaching {
+  func purge(unusedSince date: Date) {}
+}
+
+/// Builds the `variant` component of a cache key: a stable fingerprint of everything besides
+/// text/mode/model that changes the result — schema version, learning preferences, and the
+/// prompt-template body. Shared so the lookup flow and the article reader hit the same
+/// entries instead of each maintaining its own key format.
+public enum ExplanationCacheVariant {
+  public static func make(preferences: LearningPreferences, templateBody: String) -> String {
+    let normalized = preferences.normalized
+    let material = [
+      "v\(LearningExplanationDocument.currentSchemaVersion)",
+      normalized.explanationDepth.rawValue,
+      String(normalized.exampleCount),
+      normalized.chineseStyle.rawValue,
+      normalized.diagramDensity.rawValue,
+      templateBody
+    ].joined(separator: "|")
+    let digest = SHA256.hash(data: Data(material.utf8))
+    return digest.map { String(format: "%02x", $0) }.joined()
+  }
 }
 
 public final class DiskExplanationCache: ExplanationCaching, @unchecked Sendable {
@@ -72,6 +99,32 @@ public final class DiskExplanationCache: ExplanationCaching, @unchecked Sendable
     while memoryOrder.count > memoryLimit, let oldest = memoryOrder.first {
       memoryOrder.removeFirst()
       memory.removeValue(forKey: oldest)
+    }
+  }
+
+  public func purge(unusedSince date: Date) {
+    let keys: Set<URLResourceKey> = [.contentModificationDateKey]
+    guard let urls = try? FileManager.default.contentsOfDirectory(
+      at: directory,
+      includingPropertiesForKeys: Array(keys),
+      options: [.skipsHiddenFiles]
+    ) else { return }
+
+    var removedKeys = false
+    for url in urls {
+      let modified = (try? url.resourceValues(forKeys: keys).contentModificationDate) ?? .distantPast
+      guard modified < date else { continue }
+      try? FileManager.default.removeItem(at: url)
+      removedKeys = true
+    }
+
+    // The memory tier has no per-entry timestamps; clearing it after a disk purge keeps the
+    // two from disagreeing (entries repopulate on the next lookup).
+    if removedKeys {
+      lock.lock()
+      memory.removeAll()
+      memoryOrder.removeAll()
+      lock.unlock()
     }
   }
 

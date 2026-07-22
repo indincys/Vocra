@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 import Observation
 import OSLog
@@ -22,9 +21,20 @@ final class AppModel {
   var latestValidationErrorMessage: String?
   var isShortcutPaused = false
   var currentShortcut: KeyboardShortcut
-  var shortcutRegistrationErrorMessage: String?
+  var currentCollectArticleShortcut: KeyboardShortcut
+  /// The registration failure to surface in the menu bar. Tracked per slot so a successful
+  /// re-registration of one shortcut can't hide the other's failure.
+  var shortcutRegistrationErrorMessage: String? {
+    lookupShortcutErrorMessage ?? collectShortcutErrorMessage
+  }
+  private var lookupShortcutErrorMessage: String?
+  private var collectShortcutErrorMessage: String?
   let appUpdater = AppUpdater()
   var vocabularyRevision = 0
+  /// The reading library, driven by the collect shortcut and rendered by the 阅读 section.
+  let articleLibrary: ArticleLibraryModel
+  /// Set when a collected article is waiting to be opened, so the UI can jump to it.
+  var pendingArticleToOpen: UUID?
 
   private let classifier: TextClassifier
   private let promptStore: UserDefaultsPromptStore
@@ -57,7 +67,7 @@ final class AppModel {
     let repository: SQLiteVocabularyRepository
     var databaseError: String?
     do {
-      repository = try SQLiteVocabularyRepository(path: AppModel.databasePath())
+      repository = try SQLiteVocabularyRepository(path: AppStorageLocations.vocabularyDatabasePath())
     } catch {
       // Disk full / corrupt DB file: degrade to an in-memory store instead of crashing at
       // launch. Review progress won't persist this run — surfaced in the menu bar.
@@ -66,9 +76,21 @@ final class AppModel {
       // cause; the crash surface shrinks from "any disk problem" to essentially never.
       repository = try! SQLiteVocabularyRepository.inMemory()
     }
+
+    // Same degrade-don't-crash policy as the notebook above: a bad article DB costs this
+    // run's collected articles, not the app.
+    let articleRepository: SQLiteArticleRepository
+    do {
+      articleRepository = try SQLiteArticleRepository(path: AppStorageLocations.articleDatabasePath())
+    } catch {
+      databaseError = "无法打开阅读区数据库，本次运行收录的文章不会被保存。"
+      articleRepository = try! SQLiteArticleRepository.inMemory()
+    }
+    let cache = DiskExplanationCache(directory: AppStorageLocations.explanationCacheDirectory())
     self.init(
       vocabularyRepository: repository,
-      explanationCache: DiskExplanationCache(directory: AppModel.explanationCacheDirectory())
+      explanationCache: cache,
+      articleLibrary: ArticleLibraryModel(repository: articleRepository, explanationCache: cache)
     )
     self.databaseErrorMessage = databaseError
   }
@@ -84,6 +106,7 @@ final class AppModel {
     shortcutService: any ShortcutRegistering = ShortcutService(),
     panelPresenter: any ExplanationPanelPresenting = FloatingPanelController(),
     explanationCache: any ExplanationCaching = NoExplanationCache(),
+    articleLibrary: ArticleLibraryModel? = nil,
     explanationProvider: ExplanationProvider? = nil,
     vocabularyCardProvider: VocabularyCardProvider? = nil
   ) {
@@ -100,16 +123,25 @@ final class AppModel {
     self.explanationProvider = explanationProvider
     self.vocabularyCardProvider = vocabularyCardProvider
     self.currentShortcut = settingsStore.loadKeyboardShortcut()
+    self.currentCollectArticleShortcut = settingsStore.loadCollectArticleShortcut()
+    self.articleLibrary = articleLibrary
+      ?? ArticleLibraryModel(repository: try! SQLiteArticleRepository.inMemory(), settingsStore: settingsStore)
     self.shortcutChangeObserver = NotificationCenter.default.addObserver(
       forName: .vocraKeyboardShortcutDidChange,
       object: nil,
       queue: .main
     ) { [weak self] notification in
-      guard let shortcut = notification.userInfo?[VocraNotificationUserInfoKey.keyboardShortcut] as? KeyboardShortcut else {
-        return
-      }
+      // Pull the typed values out here: `userInfo` itself isn't Sendable, so it can't cross
+      // into the main-actor hop.
+      let lookupShortcut = notification.userInfo?[VocraNotificationUserInfoKey.keyboardShortcut] as? KeyboardShortcut
+      let collectShortcut = notification.userInfo?[VocraNotificationUserInfoKey.collectArticleShortcut] as? KeyboardShortcut
       Task { @MainActor in
-        self?.registerShortcut(shortcut)
+        if let lookupShortcut {
+          self?.registerShortcut(lookupShortcut)
+        }
+        if let collectShortcut {
+          self?.registerCollectArticleShortcut(collectShortcut)
+        }
       }
     }
   }
@@ -122,22 +154,41 @@ final class AppModel {
 
   func start() {
     registerShortcut(settingsStore.loadKeyboardShortcut())
+    registerCollectArticleShortcut(settingsStore.loadCollectArticleShortcut())
+    articleLibrary.start()
   }
 
   private func registerShortcut(_ shortcut: KeyboardShortcut) {
     currentShortcut = shortcut
-    let result = shortcutService.register(shortcut: shortcut) { [weak self] in
+    let result = shortcutService.register(shortcut: shortcut, slot: .lookup) { [weak self] in
       Task { @MainActor in
         self?.launchShortcutFlow()
       }
     }
     switch result {
     case .registered:
-      shortcutRegistrationErrorMessage = nil
+      lookupShortcutErrorMessage = nil
       shortcutFlowLogger.info("Registered global shortcut: \(shortcut.displayString, privacy: .public).")
     case .failed(let error):
-      shortcutRegistrationErrorMessage = error.description
+      lookupShortcutErrorMessage = error.description
       shortcutFlowLogger.error("Global shortcut registration failed: \(error.description, privacy: .public)")
+    }
+  }
+
+  private func registerCollectArticleShortcut(_ shortcut: KeyboardShortcut) {
+    currentCollectArticleShortcut = shortcut
+    let result = shortcutService.register(shortcut: shortcut, slot: .collectArticle) { [weak self] in
+      Task { @MainActor in
+        await self?.handleCollectArticle()
+      }
+    }
+    switch result {
+    case .registered:
+      collectShortcutErrorMessage = nil
+      shortcutFlowLogger.info("Registered collect shortcut: \(shortcut.displayString, privacy: .public).")
+    case .failed(let error):
+      collectShortcutErrorMessage = "收录快捷键注册失败：\(error.description)"
+      shortcutFlowLogger.error("Collect shortcut registration failed: \(error.description, privacy: .public)")
     }
   }
 
@@ -245,6 +296,46 @@ final class AppModel {
       shortcutFlowLogger.error(
         "Shortcut handling failed after \(elapsedMilliseconds(from: flowStart, clock: clock), privacy: .public) ms: \(String(describing: error), privacy: .public)"
       )
+    }
+  }
+
+  /// Collect-shortcut flow: read the selection, segment it into an article, and store it.
+  /// Deliberately does not open a window — the user is mid-read in another app — it just
+  /// flashes a confirmation and starts analyzing in the background.
+  func handleCollectArticle() async {
+    guard !isShortcutPaused else {
+      shortcutFlowLogger.info("Collect shortcut ignored because listening is paused.")
+      return
+    }
+
+    do {
+      let selection = try await selectionReader.readSelection()
+      guard let article = articleLibrary.collect(text: selection.text, sourceApp: selection.sourceApp) else {
+        panelPresenter.presentNotice(PanelNotice(
+          symbolName: "exclamationmark.triangle",
+          title: "未收录",
+          subtitle: articleLibrary.errorMessage ?? "选中的内容太短。"
+        ))
+        return
+      }
+
+      panelPresenter.presentNotice(PanelNotice(
+        symbolName: "text.book.closed",
+        title: "已收录到阅读区",
+        subtitle: "\(article.title) · \(article.sentenceCount) 句"
+      ))
+      // Selecting the article both marks it opened and kicks off the background analysis, so
+      // it is ready by the time the user switches to the reader.
+      articleLibrary.select(articleID: article.id)
+      pendingArticleToOpen = article.id
+    } catch {
+      let presentation = LookupErrorPresenter.present(error)
+      panelPresenter.presentNotice(PanelNotice(
+        symbolName: "exclamationmark.triangle",
+        title: "收录失败",
+        subtitle: presentation.message
+      ))
+      shortcutFlowLogger.error("Collect shortcut failed: \(String(describing: error), privacy: .public)")
     }
   }
 
@@ -356,21 +447,11 @@ final class AppModel {
     return document
   }
 
-  /// A stable fingerprint of everything besides text/mode/model that affects the result:
-  /// schema version, learning preferences, and the prompt-template body. Changing any of
-  /// these produces a different cache key so old entries don't shadow new settings.
   private func cacheVariant(for captured: CapturedText, templateBody: String) -> String {
-    let prefs = settingsStore.loadLearningPreferences().normalized
-    let material = [
-      "v\(LearningExplanationDocument.currentSchemaVersion)",
-      prefs.explanationDepth.rawValue,
-      String(prefs.exampleCount),
-      prefs.chineseStyle.rawValue,
-      prefs.diagramDensity.rawValue,
-      templateBody
-    ].joined(separator: "|")
-    let digest = SHA256.hash(data: Data(material.utf8))
-    return digest.map { String(format: "%02x", $0) }.joined()
+    ExplanationCacheVariant.make(
+      preferences: settingsStore.loadLearningPreferences(),
+      templateBody: templateBody
+    )
   }
 
   /// Builds the streaming callback that progressively renders a sentence as it arrives:
@@ -507,18 +588,7 @@ final class AppModel {
   /// resolving its per-profile Keychain account. Shared by the main lookup, the sentence
   /// supplement, and the vocabulary card so the assembly lives in one place.
   private func makeExplanationService() -> (service: StructuredExplanationService, configuration: APIConfiguration) {
-    let activeProfile = settingsStore.loadAPIProviderSettings().activeProfile
-    let configuration = activeProfile?.configuration ?? settingsStore.loadAPIConfiguration()
-    let apiKeyStore = activeProfile.map { KeychainAPIKeyStore(account: $0.keychainAccount) } ?? self.apiKeyStore
-    let client = OpenAICompatibleClient(
-      configuration: configuration,
-      apiKeyProvider: { try apiKeyStore.readAPIKey() }
-    )
-    let service = StructuredExplanationService(
-      aiClient: client,
-      preferences: settingsStore.loadLearningPreferences()
-    )
-    return (service, configuration)
+    ExplanationServiceFactory(settingsStore: settingsStore, fallbackKeyStore: apiKeyStore).make()
   }
 
   /// Resolves a prompt template, falling back to the bundled default if the store somehow
@@ -577,19 +647,4 @@ final class AppModel {
     requestID == activeExplanationRequestID
   }
 
-  private static func databasePath() -> String {
-    let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-    let folderName = Bundle.main.bundleIdentifier == "com.indincys.Vocra.dev" ? "Vocra Dev" : "Vocra"
-    let folder = support.appending(path: folderName, directoryHint: .isDirectory)
-    try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-    return folder.appending(path: "vocra.sqlite").path
-  }
-
-  private static func explanationCacheDirectory() -> URL {
-    let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-    let folderName = Bundle.main.bundleIdentifier == "com.indincys.Vocra.dev" ? "Vocra Dev" : "Vocra"
-    return support
-      .appending(path: folderName, directoryHint: .isDirectory)
-      .appending(path: "ExplanationCache", directoryHint: .isDirectory)
-  }
 }

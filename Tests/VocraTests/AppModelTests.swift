@@ -332,6 +332,66 @@ final class AppModelTests: XCTestCase {
     XCTAssertEqual(stored.vocabularyCard?.front.text, "middleware")
   }
 
+  func testCollectShortcutStoresTheSelectionAsAnArticle() async throws {
+    let articleRepository = try SQLiteArticleRepository.inMemory()
+    let panelPresenter = RecordingPanelPresenter()
+    let passage = """
+    The client streams the response. The idle timeout never fires mid-generation. \
+    We cache the parse so the next open is instant.
+    """
+    let model = try AppModel(
+      selectionReader: StubSelectionReader(selection: CapturedTextSelection(text: passage, sourceApp: "Safari")),
+      vocabularyRepository: .inMemory(),
+      panelPresenter: panelPresenter,
+      articleLibrary: ArticleLibraryModel(
+        repository: articleRepository,
+        analysisProvider: { _ in throw CancellationError() }
+      )
+    )
+
+    await model.handleCollectArticle()
+
+    let stored = try articleRepository.allArticles()
+    XCTAssertEqual(stored.count, 1)
+    XCTAssertEqual(stored.first?.sentenceCount, 3)
+    XCTAssertEqual(stored.first?.sourceApp, "Safari")
+    // The collected article is selected and queued up so opening the window lands on it.
+    XCTAssertEqual(model.pendingArticleToOpen, stored.first?.id)
+    XCTAssertEqual(model.articleLibrary.selectedArticleID, stored.first?.id)
+    // Collecting must not hijack the lookup panel with a result.
+    XCTAssertTrue(panelPresenter.contents.isEmpty)
+  }
+
+  func testCollectShortcutIgnoresATooShortSelection() async throws {
+    let articleRepository = try SQLiteArticleRepository.inMemory()
+    let model = try AppModel(
+      selectionReader: StubSelectionReader(selection: CapturedTextSelection(text: "middleware", sourceApp: "Tests")),
+      vocabularyRepository: .inMemory(),
+      articleLibrary: ArticleLibraryModel(repository: articleRepository)
+    )
+
+    await model.handleCollectArticle()
+
+    XCTAssertTrue(try articleRepository.allArticles().isEmpty)
+    XCTAssertNil(model.pendingArticleToOpen)
+    XCTAssertNotNil(model.articleLibrary.errorMessage)
+  }
+
+  func testPausedListeningAlsoSuppressesTheCollectShortcut() async throws {
+    let articleRepository = try SQLiteArticleRepository.inMemory()
+    let passage = "The client streams the response so the idle timeout never fires mid-generation."
+    let model = try AppModel(
+      selectionReader: StubSelectionReader(selection: CapturedTextSelection(text: passage, sourceApp: "Tests")),
+      vocabularyRepository: .inMemory(),
+      articleLibrary: ArticleLibraryModel(repository: articleRepository)
+    )
+
+    model.pauseShortcutListening(true)
+    await model.handleCollectArticle()
+
+    XCTAssertTrue(try articleRepository.allArticles().isEmpty)
+  }
+
   func testStartStoresShortcutRegistrationFailureMessage() throws {
     let shortcutService = StubShortcutService(registrationResult: .failed(.registerHotKey(-9878)))
     let model = try AppModel(
@@ -386,20 +446,31 @@ private actor SequencedSelectionReader: SelectionReader {
 
 private final class StubShortcutService: ShortcutRegistering {
   private let registrationResult: ShortcutRegistrationResult
-  private(set) var registeredShortcut: KeyboardShortcut?
-  private(set) var handler: (() -> Void)?
+  private(set) var registeredShortcuts: [ShortcutSlot: KeyboardShortcut] = [:]
+  private(set) var handlers: [ShortcutSlot: () -> Void] = [:]
 
   init(registrationResult: ShortcutRegistrationResult = .registered) {
     self.registrationResult = registrationResult
   }
 
-  func register(shortcut: KeyboardShortcut, handler: @escaping () -> Void) -> ShortcutRegistrationResult {
-    registeredShortcut = shortcut
-    self.handler = handler
+  var registeredShortcut: KeyboardShortcut? { registeredShortcuts[.lookup] }
+  var handler: (() -> Void)? { handlers[.lookup] }
+
+  func register(shortcut: KeyboardShortcut, slot: ShortcutSlot, handler: @escaping () -> Void) -> ShortcutRegistrationResult {
+    registeredShortcuts[slot] = shortcut
+    handlers[slot] = handler
     return registrationResult
   }
 
-  func unregister() {}
+  func unregister(slot: ShortcutSlot) {
+    registeredShortcuts.removeValue(forKey: slot)
+    handlers.removeValue(forKey: slot)
+  }
+
+  func unregisterAll() {
+    registeredShortcuts.removeAll()
+    handlers.removeAll()
+  }
 }
 
 @MainActor

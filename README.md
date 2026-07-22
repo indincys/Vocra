@@ -15,7 +15,9 @@ I kept the app focused on purpose. There is no account system, no cloud sync, an
 - Renders structured sentence analysis, word explanations, and vocabulary cards in SwiftUI.
 - Saves words and phrases to a local SQLite notebook.
 - Keeps review simple with `forgot`, `vague`, `familiar`, and `mastered`.
-- Lets me edit prompts, learning preferences, keyboard shortcut, and API profiles in Settings.
+- Collects a long selection (a paragraph or a whole article) with a second shortcut and studies it sentence by sentence in the Reading section.
+- Lets me edit prompts, learning preferences, keyboard shortcuts, and API profiles in Settings.
+- Starts at login and runs in the background, menu bar only.
 - Optionally schedules a daily review reminder.
 
 ## How It Works
@@ -38,8 +40,17 @@ I split the code into two targets:
 
 The explanation format is structured JSON instead of free-form Markdown. That keeps the UI stable even when prompts change. Vocra validates the JSON before rendering it, and if the model output is off, it retries once with a repair prompt.
 
+## Reading Long Text
+
+Looking a single sentence up is one thing; working through a paragraph is another. Selecting a long passage and pressing the collect shortcut (`Option-Shift-Space` by default) files it into the Reading section instead of popping the panel.
+
+There, the passage keeps its original paragraphs and is split into sentences. Vocra analyzes them in the background right after collecting, so by the time I open the article it is already done. Each sentence carries its grammar colors inline while I read; clicking one expands the structure, the grammar notes, and the key vocabulary directly underneath it, without pushing the surrounding text off screen.
+
+Every analysis is cached next to its sentence in SQLite, so reopening an article is instant and costs nothing. Collected articles are swept 30 days after I last opened them (configurable, including "keep forever"), and their cached analyses go with them.
+
 ## Main Screens
 
+- Reading: collected articles, studied sentence by sentence.
 - Vocabulary: the local notebook.
 - Review: due cards and the simple review flow.
 - Settings: API profiles, prompt editing, learning preferences, shortcut, and reminders.
@@ -71,7 +82,9 @@ In Settings I usually set:
 - example count
 - Chinese explanation style
 - diagram density
-- global shortcut
+- global shortcuts (lookup and collect)
+- launch at login
+- how long collected articles are kept
 - daily reminder time
 
 The API key never goes into the database. It stays in Keychain.

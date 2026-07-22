@@ -7,10 +7,21 @@ private let shortcutServiceLogger = Logger(
   category: "ShortcutService"
 )
 
+/// The independently-registrable global shortcuts. The raw value is the Carbon
+/// `EventHotKeyID.id`, so the shared event handler can route a keypress back to the right
+/// slot's handler.
+public enum ShortcutSlot: UInt32, CaseIterable, Sendable {
+  /// Look up / explain the current selection in the floating panel.
+  case lookup = 1
+  /// Collect the current selection into the reading library as an article.
+  case collectArticle = 2
+}
+
 public protocol ShortcutRegistering: AnyObject {
   @discardableResult
-  func register(shortcut: KeyboardShortcut, handler: @escaping () -> Void) -> ShortcutRegistrationResult
-  func unregister()
+  func register(shortcut: KeyboardShortcut, slot: ShortcutSlot, handler: @escaping () -> Void) -> ShortcutRegistrationResult
+  func unregister(slot: ShortcutSlot)
+  func unregisterAll()
 }
 
 public enum ShortcutRegistrationResult: Equatable, Sendable {
@@ -42,6 +53,13 @@ public struct KeyboardShortcut: Codable, Equatable, Sendable {
   }
 
   public static let defaultShortcut = KeyboardShortcut(keyCode: UInt32(kVK_Space), modifiers: UInt32(optionKey))
+
+  /// Collect-into-reading-library default: the lookup shortcut plus Shift, so the two stay
+  /// muscle-memory adjacent.
+  public static let defaultCollectArticleShortcut = KeyboardShortcut(
+    keyCode: UInt32(kVK_Space),
+    modifiers: UInt32(optionKey) | UInt32(shiftKey)
+  )
 
   public var displayString: String {
     var parts: [String] = []
@@ -143,60 +161,117 @@ public struct KeyboardShortcut: Codable, Equatable, Sendable {
   ]
 }
 
+/// Owns every Carbon hot key the app registers. One shared `kEventHotKeyPressed` handler is
+/// installed for the whole process; each keypress carries its `EventHotKeyID`, which routes
+/// back to the slot that registered it.
 public final class ShortcutService: ShortcutRegistering, @unchecked Sendable {
-  private var hotKeyRef: EventHotKeyRef?
+  private let lock = NSLock()
+  private var hotKeyRefs: [UInt32: EventHotKeyRef] = [:]
+  private var handlers: [UInt32: () -> Void] = [:]
   private var eventHandlerRef: EventHandlerRef?
-  private var handler: (() -> Void)?
 
   public init() {}
 
   deinit {
-    unregister()
+    unregisterAll()
     if let eventHandlerRef {
       RemoveEventHandler(eventHandlerRef)
     }
   }
 
   @discardableResult
-  public func register(shortcut: KeyboardShortcut = .defaultShortcut, handler: @escaping () -> Void) -> ShortcutRegistrationResult {
-    unregister()
-    self.handler = handler
-    shortcutServiceLogger.info("Registering global shortcut: \(shortcut.displayString, privacy: .public).")
+  public func register(
+    shortcut: KeyboardShortcut = .defaultShortcut,
+    slot: ShortcutSlot = .lookup,
+    handler: @escaping () -> Void
+  ) -> ShortcutRegistrationResult {
+    unregister(slot: slot)
+    shortcutServiceLogger.info(
+      "Registering global shortcut for slot \(slot.rawValue, privacy: .public): \(shortcut.displayString, privacy: .public)."
+    )
 
-    if eventHandlerRef == nil {
-      var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
-      var installedHandler: EventHandlerRef?
-      let installStatus = InstallEventHandler(GetApplicationEventTarget(), { _, _, userData in
-        guard let userData else { return noErr }
-        let service = Unmanaged<ShortcutService>.fromOpaque(userData).takeUnretainedValue()
-        shortcutServiceLogger.info("Global shortcut event received.")
-        service.handler?()
-        return noErr
-      }, 1, &eventType, Unmanaged.passUnretained(self).toOpaque(), &installedHandler)
-
-      guard installStatus == noErr else {
-        self.handler = nil
-        shortcutServiceLogger.error("Global shortcut event handler installation failed: \(installStatus, privacy: .public).")
-        return .failed(.installEventHandler(installStatus))
-      }
-      eventHandlerRef = installedHandler
+    if let failure = installSharedEventHandlerIfNeeded() {
+      return .failed(failure)
     }
 
-    let hotKeyID = EventHotKeyID(signature: OSType(0x566F6372), id: 1)
+    let hotKeyID = EventHotKeyID(signature: OSType(0x566F6372), id: slot.rawValue)
+    var hotKeyRef: EventHotKeyRef?
     let registerStatus = RegisterEventHotKey(shortcut.keyCode, shortcut.modifiers, hotKeyID, GetApplicationEventTarget(), 0, &hotKeyRef)
-    if registerStatus != noErr {
-      self.handler = nil
+    guard registerStatus == noErr, let hotKeyRef else {
       shortcutServiceLogger.error("Global shortcut registration failed: \(registerStatus, privacy: .public).")
       return .failed(.registerHotKey(registerStatus))
     }
+
+    lock.lock()
+    hotKeyRefs[slot.rawValue] = hotKeyRef
+    handlers[slot.rawValue] = handler
+    lock.unlock()
+
     shortcutServiceLogger.info("Global shortcut registered: \(shortcut.displayString, privacy: .public).")
     return .registered
   }
 
-  public func unregister() {
+  public func unregister(slot: ShortcutSlot) {
+    lock.lock()
+    let hotKeyRef = hotKeyRefs.removeValue(forKey: slot.rawValue)
+    handlers.removeValue(forKey: slot.rawValue)
+    lock.unlock()
     if let hotKeyRef {
       UnregisterEventHotKey(hotKeyRef)
-      self.hotKeyRef = nil
     }
+  }
+
+  public func unregisterAll() {
+    lock.lock()
+    let refs = Array(hotKeyRefs.values)
+    hotKeyRefs.removeAll()
+    handlers.removeAll()
+    lock.unlock()
+    for ref in refs {
+      UnregisterEventHotKey(ref)
+    }
+  }
+
+  /// Installs the process-wide hot-key event handler once. Returns a failure to report when
+  /// installation didn't succeed.
+  private func installSharedEventHandlerIfNeeded() -> ShortcutRegistrationError? {
+    guard eventHandlerRef == nil else { return nil }
+
+    var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+    var installedHandler: EventHandlerRef?
+    let installStatus = InstallEventHandler(GetApplicationEventTarget(), { _, event, userData in
+      guard let userData, let event else { return noErr }
+      var hotKeyID = EventHotKeyID()
+      let status = GetEventParameter(
+        event,
+        EventParamName(kEventParamDirectObject),
+        EventParamType(typeEventHotKeyID),
+        nil,
+        MemoryLayout<EventHotKeyID>.size,
+        nil,
+        &hotKeyID
+      )
+      guard status == noErr else { return noErr }
+      let service = Unmanaged<ShortcutService>.fromOpaque(userData).takeUnretainedValue()
+      shortcutServiceLogger.info("Global shortcut event received for slot \(hotKeyID.id, privacy: .public).")
+      service.invokeHandler(id: hotKeyID.id)
+      return noErr
+    }, 1, &eventType, Unmanaged.passUnretained(self).toOpaque(), &installedHandler)
+
+    guard installStatus == noErr else {
+      shortcutServiceLogger.error("Global shortcut event handler installation failed: \(installStatus, privacy: .public).")
+      return .installEventHandler(installStatus)
+    }
+    eventHandlerRef = installedHandler
+    return nil
+  }
+
+  /// Copies the handler out from under the lock before calling it, so a handler that
+  /// re-enters `register`/`unregister` can't deadlock.
+  private func invokeHandler(id: UInt32) {
+    lock.lock()
+    let handler = handlers[id]
+    lock.unlock()
+    handler?()
   }
 }

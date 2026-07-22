@@ -7,8 +7,12 @@ public protocol SettingsStore: Sendable {
   func saveAPIProviderSettings(_ settings: APIProviderSettings)
   func loadKeyboardShortcut() -> KeyboardShortcut
   func saveKeyboardShortcut(_ shortcut: KeyboardShortcut)
+  func loadCollectArticleShortcut() -> KeyboardShortcut
+  func saveCollectArticleShortcut(_ shortcut: KeyboardShortcut)
   func loadLearningPreferences() -> LearningPreferences
   func saveLearningPreferences(_ preferences: LearningPreferences)
+  func loadArticleRetention() -> ArticleRetention
+  func saveArticleRetention(_ retention: ArticleRetention)
 }
 
 public final class UserDefaultsSettingsStore: SettingsStore, @unchecked Sendable {
@@ -16,7 +20,9 @@ public final class UserDefaultsSettingsStore: SettingsStore, @unchecked Sendable
   private let apiConfigurationKey = "apiConfiguration"
   private let apiProviderSettingsKey = "apiProviderSettings"
   private let keyboardShortcutKey = "keyboardShortcut"
+  private let collectArticleShortcutKey = "collectArticleShortcut"
   private let learningPreferencesKey = "learningPreferences"
+  private let articleRetentionKey = "articleRetentionDays"
 
   public init(defaults: UserDefaults = .standard) {
     self.defaults = defaults
@@ -80,6 +86,31 @@ public final class UserDefaultsSettingsStore: SettingsStore, @unchecked Sendable
   public func saveKeyboardShortcut(_ shortcut: KeyboardShortcut) {
     guard shortcut.isValid, let data = try? JSONEncoder().encode(shortcut) else { return }
     defaults.set(data, forKey: keyboardShortcutKey)
+  }
+
+  public func loadCollectArticleShortcut() -> KeyboardShortcut {
+    guard
+      let data = defaults.data(forKey: collectArticleShortcutKey),
+      let shortcut = try? JSONDecoder().decode(KeyboardShortcut.self, from: data),
+      shortcut.isValid
+    else {
+      return .defaultCollectArticleShortcut
+    }
+    return shortcut
+  }
+
+  public func saveCollectArticleShortcut(_ shortcut: KeyboardShortcut) {
+    guard shortcut.isValid, let data = try? JSONEncoder().encode(shortcut) else { return }
+    defaults.set(data, forKey: collectArticleShortcutKey)
+  }
+
+  public func loadArticleRetention() -> ArticleRetention {
+    guard defaults.object(forKey: articleRetentionKey) != nil else { return .default }
+    return ArticleRetention(days: defaults.integer(forKey: articleRetentionKey))
+  }
+
+  public func saveArticleRetention(_ retention: ArticleRetention) {
+    defaults.set(retention.days, forKey: articleRetentionKey)
   }
 
   public func loadLearningPreferences() -> LearningPreferences {

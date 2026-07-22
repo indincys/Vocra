@@ -33,6 +33,10 @@ struct VocraApp: App {
       }
       .keyboardShortcut("e")
 
+      Button("收录选中段落") {
+        Task { await appModel.handleCollectArticle() }
+      }
+
       Button(appModel.isShortcutPaused ? "恢复划词监听" : "暂停划词监听") {
         appModel.pauseShortcutListening(!appModel.isShortcutPaused)
       }
@@ -45,8 +49,7 @@ struct VocraApp: App {
       Divider()
 
       Button("打开 \(appName)") {
-        openWindow(id: "main")
-        NSApp.activate(ignoringOtherApps: true)
+        appDelegate.presentMainWindow()
       }
 
       Divider()

@@ -32,6 +32,16 @@ struct RootView: View {
     .sheet(item: $inspectedCard) { card in
       CardDetailSheet(card: card)
     }
+    // A freshly collected article is already selected in the library; opening the window
+    // afterwards should land on it rather than on 今天.
+    .onAppear(perform: consumePendingArticle)
+    .onChange(of: appModel.pendingArticleToOpen) { _, _ in consumePendingArticle() }
+  }
+
+  private func consumePendingArticle() {
+    guard appModel.pendingArticleToOpen != nil else { return }
+    section = .reading
+    appModel.pendingArticleToOpen = nil
   }
 
   // MARK: Sidebar
@@ -121,6 +131,14 @@ struct RootView: View {
       )
     case .vocabulary:
       VocabularyListView(cards: cards, onOpen: { inspectedCard = $0 })
+    case .reading:
+      ArticleReaderView(
+        library: appModel.articleLibrary,
+        collectShortcutDisplay: appModel.currentCollectArticleShortcut.displayString,
+        onSaveVocabulary: { text, type, document in
+          appModel.addVocabularyEntry(text: text, type: type, document: document)
+        }
+      )
     case .review:
       ReviewView(cards: appModel.dueCards()) { cardID, rating in
         appModel.applyReview(cardID: cardID, rating: rating)
@@ -135,6 +153,7 @@ struct RootView: View {
 
 enum VocraSection: String, CaseIterable, Identifiable {
   case today
+  case reading
   case vocabulary
   case review
   case settings
@@ -144,6 +163,7 @@ enum VocraSection: String, CaseIterable, Identifiable {
   var title: String {
     switch self {
     case .today: "今天"
+    case .reading: "阅读"
     case .vocabulary: "生词本"
     case .review: "复习"
     case .settings: "设置"
@@ -153,6 +173,7 @@ enum VocraSection: String, CaseIterable, Identifiable {
   var systemImage: String {
     switch self {
     case .today: "house"
+    case .reading: "text.book.closed"
     case .vocabulary: "book"
     case .review: "rectangle.stack"
     case .settings: "gearshape"

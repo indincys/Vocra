@@ -20,6 +20,11 @@ public final class SQLiteDatabase {
     }
   }
 
+  /// Rows changed by the most recent INSERT/UPDATE/DELETE on this connection.
+  public var changes: Int {
+    Int(sqlite3_changes(handle))
+  }
+
   public func prepare(_ sql: String) throws -> OpaquePointer? {
     var statement: OpaquePointer?
     guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK else {
